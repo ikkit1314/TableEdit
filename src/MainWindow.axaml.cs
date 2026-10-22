@@ -212,6 +212,12 @@ public partial class MainWindow : Window
                 _headerToggle),
             Sub("Data",
                 Item("Auto-Fill Column…", () => _ = AutoFillAsync()),
+                Sub("Selected Cells",
+                    Item("Trim Whitespace", () => TransformSelectedCells("Trim Selected Cells", s => s.Trim())),
+                    Item("UPPERCASE", () => TransformSelectedCells("Uppercase Selected Cells", s => s.ToUpper(CultureInfo.CurrentCulture))),
+                    Item("lowercase", () => TransformSelectedCells("Lowercase Selected Cells", s => s.ToLower(CultureInfo.CurrentCulture))),
+                    Item("Title Case", () => TransformSelectedCells("Title Case Selected Cells",
+                        s => CultureInfo.CurrentCulture.TextInfo.ToTitleCase(s.ToLower(CultureInfo.CurrentCulture))))),
                 Sep(),
                 Item("Trim Whitespace", TrimWhitespace),
                 Item("Remove Empty Rows", RemoveEmptyRows),
@@ -296,6 +302,7 @@ public partial class MainWindow : Window
 
     private void RebuildColumns()
     {
+        _searchColumnRevision++;
         ClearCellSelection();
         Table.Columns.Clear();
         for (int i = 0; i < _headers.Count; i++)
@@ -1268,6 +1275,15 @@ public partial class MainWindow : Window
 
     // ───────────────────────────── find & replace ─────────────────────────────
 
+    private long _searchColumnRevision;
+
+    internal SearchSelection? CaptureSearchSelection()
+    {
+        if (!Table.CommitEdit() || !_cells.HasSelection) return null;
+        return new SearchSelection(_visible.Skip(_cells.Top).Take(_cells.Bottom - _cells.Top + 1),
+            _cells.Left, _cells.Right, _searchColumnRevision);
+    }
+
     private void ShowFind()
     {
         if (_findWindow == null)
@@ -1282,13 +1298,40 @@ public partial class MainWindow : Window
     private string? ValidateSearch(SearchOptions o, out System.Text.RegularExpressions.Regex? rx)
     {
         rx = null;
+        if (!Table.CommitEdit()) return "Finish editing the current cell first.";
         if (o.Find.Length == 0) return "Enter text to find.";
-        if (o.CurrentColumnOnly && CurrentCol < 0) return "Select a cell in the column to search.";
+        if (o.Scope == SearchScope.CurrentColumn && CurrentCol < 0) return "Select a cell in the column to search.";
+        if (o.Scope == SearchScope.SelectedCells)
+        {
+            if (o.Selection == null) return "Select cells, then click Use current selection.";
+            if (o.Selection.ColumnRevision != _searchColumnRevision)
+                return "The table changed. Select cells again, then click Use current selection.";
+        }
         rx = o.BuildRegex();
         return rx == null ? "Invalid regular expression." : null;
     }
 
-    private bool InScope(SearchOptions o, int col) => !o.CurrentColumnOnly || col == CurrentCol;
+    private IEnumerable<(Row Row, int VisibleRow, int Column)> SearchCells(SearchOptions o)
+    {
+        int left = o.Scope == SearchScope.CurrentColumn ? CurrentCol :
+            o.Scope == SearchScope.SelectedCells ? o.Selection!.FirstColumn : 0;
+        int right = o.Scope == SearchScope.CurrentColumn ? left :
+            o.Scope == SearchScope.SelectedCells ? o.Selection!.LastColumn : _headers.Count - 1;
+        for (int r = 0; r < _visible.Count; r++)
+        {
+            var row = _visible[r];
+            if (o.Scope == SearchScope.SelectedCells && !o.Selection!.Rows.Contains(row)) continue;
+            for (int c = left; c <= right; c++) yield return (row, r, c);
+        }
+    }
+
+    private bool InSearchScope(SearchOptions o, Row row, int column) => o.Scope switch
+    {
+        SearchScope.CurrentColumn => column == CurrentCol,
+        SearchScope.SelectedCells => o.Selection!.Rows.Contains(row) &&
+            column >= o.Selection.FirstColumn && column <= o.Selection.LastColumn,
+        _ => true,
+    };
 
     public string FindNext(SearchOptions o)
     {
@@ -1298,33 +1341,29 @@ public partial class MainWindow : Window
 
         int startRow = Table.SelectedItem is Row sr ? Math.Max(0, _visible.IndexOf(sr)) : 0;
         int startCol = Math.Max(CurrentCol, 0);
-        long total = (long)_visible.Count * cols;
         long start = (long)startRow * cols + startCol;
-
-        for (long step = 1; step <= total; step++)
+        (Row Row, int VisibleRow, int Column)? wrap = null;
+        foreach (var cell in SearchCells(o))
         {
-            long p = (start + step) % total;
-            int r = (int)(p / cols), c = (int)(p % cols);
-            if (!InScope(o, c)) continue;
-            if (rx!.IsMatch(_visible[r].Cells[c]))
-            {
-                var row = _visible[r];
-                SelectCell(r, c);
-                Table.ScrollIntoView(row, Table.Columns[c]);
-                return $"Found in row {r + 1:N0}, {ColumnName(c)}.";
-            }
+            if (!rx!.IsMatch(cell.Row.Cells[cell.Column])) continue;
+            if ((long)cell.VisibleRow * cols + cell.Column > start) return ShowMatch(cell);
+            wrap ??= cell;
         }
-        return "Not found.";
+        return wrap is { } match ? ShowMatch(match) : "Not found.";
+
+        string ShowMatch((Row Row, int VisibleRow, int Column) cell)
+        {
+            SelectCell(cell.VisibleRow, cell.Column);
+            Table.ScrollIntoView(cell.Row, Table.Columns[cell.Column]);
+            return $"Found in row {cell.VisibleRow + 1:N0}, {ColumnName(cell.Column)}.";
+        }
     }
 
     public string CountMatches(SearchOptions o)
     {
         if (ValidateSearch(o, out var rx) is { } error) return error;
-        int cells = 0;
-        foreach (var r in _visible)
-            for (int c = 0; c < r.Cells.Count; c++)
-                if (InScope(o, c) && rx!.IsMatch(r.Cells[c])) cells++;
-        return $"{cells:N0} matching cells.";
+        long cells = SearchCells(o).LongCount(cell => rx!.IsMatch(cell.Row.Cells[cell.Column]));
+        return cells == 1 ? "1 matching cell." : $"{cells:N0} matching cells.";
     }
 
     private static string ReplacementText(SearchOptions o) => o.UseRegex ? o.Replace : o.Replace.Replace("$", "$$");
@@ -1333,13 +1372,12 @@ public partial class MainWindow : Window
     {
         if (ValidateSearch(o, out var rx) is { } error) return error;
         int c = CurrentCol;
-        if (Table.SelectedItem is Row row && c >= 0 && InScope(o, c) && rx!.IsMatch(row.Cells[c]))
+        if (Table.SelectedItem is Row row && c >= 0 &&
+            _visibleIndices.ContainsKey(row) && InSearchScope(o, row, c) && rx!.IsMatch(row.Cells[c]))
         {
-            Table.CommitEdit();
             var oldValue = row.Cells[c];
             var newValue = rx.Replace(oldValue, ReplacementText(o));
-            row.Cells[c] = newValue;
-            Push(new UndoEntry("Replace", () => row.Cells[c] = oldValue, () => row.Cells[c] = newValue));
+            if (newValue != oldValue) ApplyCellChanges("Replace", new() { (row, c, oldValue, newValue) });
         }
         return FindNext(o);
     }
@@ -1347,19 +1385,14 @@ public partial class MainWindow : Window
     public string ReplaceAll(SearchOptions o)
     {
         if (ValidateSearch(o, out var rx) is { } error) return error;
-        int changed = 0;
         var replacement = ReplacementText(o);
-        Structural("Replace All", () =>
+        var changes = new List<(Row Row, int Col, string Old, string New)>();
+        foreach (var (row, _, col) in SearchCells(o))
         {
-            foreach (var r in _visible)
-                for (int c = 0; c < r.Cells.Count; c++)
-                {
-                    if (!InScope(o, c)) continue;
-                    var v = rx!.Replace(r.Cells[c], replacement);
-                    if (v != r.Cells[c]) { r.Cells[c] = v; changed++; }
-                }
-            return changed > 0;
-        });
-        return $"Replaced in {changed:N0} cells.";
+            var value = rx!.Replace(row.Cells[col], replacement);
+            if (value != row.Cells[col]) changes.Add((row, col, row.Cells[col], value));
+        }
+        ApplyCellChanges("Replace All", changes);
+        return changes.Count == 1 ? "Replaced in 1 cell." : $"Replaced in {changes.Count:N0} cells.";
     }
 }

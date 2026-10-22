@@ -25,7 +25,7 @@ internal static class Program
     private const string Fixture = "Name,Value,Group\nDelta,40,red\nAlpha,10,blue\nCharlie,30,red\nBravo,20,green\nEcho,50,blue\nFoxtrot,60,\n";
 
     [STAThread]
-    private static int Main()
+    private static int Main(string[] args)
     {
         if (!OperatingSystem.IsLinux() || string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY")))
         {
@@ -46,7 +46,12 @@ internal static class Program
                     _directory = Path.Combine(Path.GetTempPath(), "tableedit-interaction-" + Guid.NewGuid().ToString("N"));
                     Directory.CreateDirectory(_directory);
                     await Pause();
-                    await RunChecks();
+                    if (args.Contains("--scope-only"))
+                    {
+                        await CheckScopedFindReplace();
+                        await CheckSelectedTransforms();
+                    }
+                    else await RunChecks();
                     Console.WriteLine($"PASS: {_passed} interaction checks.");
                 }
                 catch (Exception error)
@@ -201,6 +206,9 @@ internal static class Program
         Equal(Lines("40", "10", "30", "20"), SelectedText(), "whole-column selection respects the visible filtered rows");
         await Click(_window.FindControl<Button>("ShowAllButton")!);
 
+        await CheckScopedFindReplace();
+        await CheckSelectedTransforms();
+
         var largePath = Path.Combine(_directory, "long.csv");
         File.WriteAllText(largePath, "Name,Value,Group\n" + string.Join('\n', Enumerable.Range(0, 200).Select(i => $"Item{i},{i},g{i}")));
         await _window.LoadFileAsync(largePath);
@@ -224,6 +232,162 @@ internal static class Program
         True(Rows().Count == 199 && Rows()[1].Cells[0] == "Item2", "Ctrl+Backspace deletes a row once despite the menu shortcut");
         await Key("z", control: true);
         True(Rows().Count == 200, "Undo restores the Ctrl+Backspace deletion");
+    }
+
+    private static async Task CheckScopedFindReplace()
+    {
+        var path = Path.Combine(_directory, "search-scope.csv");
+        File.WriteAllText(path, "Name,Value,Group\nFirst,red,red\nSecond,red,red\nThird,red,red\nFourth,red,red\n");
+        await _window.LoadFileAsync(path);
+        await Pause();
+        await ClickCell(1, 2);
+        await ClickCell(2, 2, shift: true);
+        await Key("f", control: true, alt: true);
+        var find = ((IClassicDesktopStyleApplicationLifetime)Application.Current!.ApplicationLifetime!).Windows
+            .OfType<FindReplaceWindow>().Single();
+        T Named<T>(string name) where T : Control => find.GetVisualDescendants().OfType<T>().Single(c => c.Name == name);
+        Button Button(string label) => find.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, label));
+        string Status() => Named<TextBlock>("SearchStatus").Text ?? "";
+        await Key("r");
+        await Key("e");
+        await Key("d");
+        await Click(Named<ComboBox>("SearchScope"));
+        await Key("Down");
+        await Key("Down");
+        await Key("Return");
+        True(Named<ComboBox>("SearchScope").SelectedIndex == 2, "scope dropdown selects Selected cells through keyboard input");
+        await Click(Button("Count"));
+        Equal("2 matching cells.", Status(), "selected-cell search excludes matching neighboring columns and rows");
+        await Click(Button("Find Next"));
+        Equal("red", SelectedText(), "Find Next moves the cell cursor within the captured selection");
+        True(Status().Contains("row 2"), "selected search wraps from its original last cell to its first match");
+        await Click(Button("Count"));
+        Equal("2 matching cells.", Status(), "finding a single match does not shrink the captured search region");
+        await Click(Button("Find Next"));
+        True(Status().Contains("row 3"), "repeated Find Next visits the next cell in the captured selection");
+        await Click(Button("Find Next"));
+        True(Status().Contains("row 2"), "Find Next wraps only within the captured selection");
+        await Click(Named<TextBox>("ReplaceText"));
+        await Key("x");
+        await Click(Button("Replace"));
+        True(Rows()[1].Cells[2] == "x" && Rows()[2].Cells[2] == "red" && Rows()[1].Cells[1] == "red",
+            "Replace changes one matching selected cell and preserves its neighboring values");
+        await ClickCell(0, 0);
+        await Key("z", control: true);
+        Equal("red", Rows()[1].Cells[2], "Undo restores a scoped single replacement");
+        await Click(Button("Replace All"));
+        Equal("Replaced in 2 cells.", Status(), "Replace All uses the captured region after cursor and grid selection changes");
+        True(Rows()[0].Cells[2] == "red" && Rows()[1].Cells[2] == "x" && Rows()[2].Cells[2] == "x" &&
+             Rows()[3].Cells[2] == "red" && Rows().All(r => r.Cells[1] == "red"),
+            "scoped Replace All preserves every unselected row and column");
+        await ClickCell(0, 0);
+        await Key("z", control: true);
+        True(Rows().All(r => r.Cells[2] == "red"), "one Undo restores every scoped replacement");
+        await Key("z", control: true, shift: true);
+        True(Rows()[1].Cells[2] == "x" && Rows()[2].Cells[2] == "x" && Rows()[0].Cells[2] == "red",
+            "Redo reapplies only the captured cell changes");
+        await Key("z", control: true);
+
+        // Captured row identities remain meaningful when sorting changes their visible positions.
+        await ClickHeader(0);
+        await WaitUntil(() => Rows()[1].Cells[0] == "Fourth");
+        await Click(Button("Replace All"));
+        True(Rows().All(r => r.Cells[2] == (r.Cells[0] is "Second" or "Third" ? "x" : "red")),
+            "sorting does not redirect a captured selection to different records");
+        await ClickCell(0, 0);
+        await Key("z", control: true);
+
+        var filter = _window.FindControl<TextBox>("FilterBox")!;
+        await Click(filter);
+        foreach (char c in "Second") await Key(char.ToLowerInvariant(c).ToString());
+        await WaitUntil(() => Rows().Count == 1);
+        await Click(Button("Count"));
+        Equal("1 matching cell.", Status(), "selected search intersects its captured region with currently visible rows");
+        await Click(Button("Replace All"));
+        Equal("Replaced in 1 cell.", Status(), "selected replacement does not change captured rows hidden by a filter");
+        await Click(_window.FindControl<Button>("ShowAllButton")!);
+        True(Rows().Single(r => r.Cells[0] == "Second").Cells[2] == "x" &&
+             Rows().Single(r => r.Cells[0] == "Third").Cells[2] == "red",
+            "a hidden matching record remains unchanged after scoped replacement");
+
+        await _window.LoadFileAsync(path);
+        await Pause();
+        await Click(Button("Replace All"));
+        True(Status().Contains("table changed") && Rows().All(r => r.Cells[2] == "red"),
+            "a captured region from an old document is rejected without changing data");
+        await Click(Named<Button>("UseSelection"));
+        await Click(Button("Replace All"));
+        True(Status().Contains("Select cells") && Rows().All(r => r.Cells[2] == "red"),
+            "an empty selected scope never falls back to replacing the whole table");
+        await ClickCell(0, 2);
+        await Click(Named<Button>("UseSelection"));
+        await Click(Button("Count"));
+        Equal("1 matching cell.", Status(), "Use current selection explicitly captures a new search region");
+
+        await ClickCell(0, 1);
+        await Click(Named<ComboBox>("SearchScope"));
+        await Key("Home");
+        await Key("Down");
+        await Key("Return");
+        await Click(Button("Replace All"));
+        True(Rows().All(r => r.Cells[1] == "x" && r.Cells[2] == "red"),
+            "current-column replacement remains limited to the current visible column");
+        await Click(Named<ComboBox>("SearchScope"));
+        await Key("Home");
+        await Key("Return");
+        await Click(Button("Count"));
+        Equal("4 matching cells.", Status(), "visible-cell search remains available independently of the captured selection");
+        find.Close();
+        await Pause();
+    }
+
+    private static async Task CheckSelectedTransforms()
+    {
+        var path = Path.Combine(_directory, "transform-scope.csv");
+        File.WriteAllText(path, "Name,Value,Group\nFirst, untouched , untouched \nSecond, keep , red \nThird, keep , blue \nFourth, untouched , untouched \n");
+        await _window.LoadFileAsync(path);
+        await Pause();
+        await ClickCell(1, 2);
+        await ClickCell(2, 2, shift: true);
+        await ContextAction("Trim Selected Cells", Cell(2, 2));
+        True(Rows()[1].Cells[2] == "red" && Rows()[2].Cells[2] == "blue" &&
+             Rows()[1].Cells[1] == " keep " && Rows()[0].Cells[2] == " untouched ",
+            "context-menu trim changes only the selected rectangle");
+        await ContextAction("UPPERCASE Selected Cells", Cell(2, 2));
+        True(Rows()[1].Cells[2] == "RED" && Rows()[2].Cells[2] == "BLUE" && Rows()[1].Cells[1] == " keep ",
+            "context-menu uppercase preserves selection and unselected values");
+        await Key("z", control: true);
+        True(Rows()[1].Cells[2] == "red" && Rows()[2].Cells[2] == "blue", "one Undo restores a selected-cell transformation");
+        await Key("z", control: true, shift: true);
+        True(Rows()[1].Cells[2] == "RED" && Rows()[2].Cells[2] == "BLUE", "Redo restores the whole selected-cell transformation");
+        await ContextAction("lowercase Selected Cells", Cell(2, 2));
+        True(Rows()[1].Cells[2] == "red" && Rows()[2].Cells[2] == "blue", "context-menu lowercase applies to the retained rectangle");
+
+        var filter = _window.FindControl<TextBox>("FilterBox")!;
+        await Click(filter);
+        foreach (char c in "blue") await Key(c.ToString());
+        await WaitUntil(() => Rows().Count == 1);
+        await ClickCell(0, 2);
+        await Key("Delete");
+        await WaitUntil(() => Rows().Count == 0);
+        True(Rows().Count == 0, "clearing selected cells refreshes active search results");
+        await Key("z", control: true);
+        await WaitUntil(() => Rows().Count == 1);
+        Equal("blue", Rows()[0].Cells[2], "Undo restores a changed cell and its matching filtered row");
+        await Click(_window.FindControl<Button>("ShowAllButton")!);
+        True(Rows().Count == 4 && Rows()[1].Cells[2] == "red" && Rows()[0].Cells[2] == " untouched ",
+            "filtering and clearing leave every unselected record unchanged");
+    }
+
+    private static async Task ContextAction(string label, Control cell)
+    {
+        _input.Move(cell.PointToScreen(new Point(cell.Bounds.Width / 2, cell.Bounds.Height / 2)));
+        _input.Button(true, 3);
+        await Task.Delay(30);
+        _input.Button(false, 3);
+        await Pause();
+        var item = _grid.ContextMenu!.GetVisualDescendants().OfType<MenuItem>().Single(m => Equals(m.Header, label));
+        await Click(item);
     }
 
     private static async Task LoadFixture()
@@ -282,12 +446,14 @@ internal static class Program
         _input.Button(false);
         await Pause();
     }
-    private static async Task Key(string key, bool control = false, bool shift = false)
+    private static async Task Key(string key, bool control = false, bool shift = false, bool alt = false)
     {
         if (control) _input.Modifier("Control_L", true);
         if (shift) _input.Modifier("Shift_L", true);
+        if (alt) _input.Modifier("Alt_L", true);
         _input.Modifier(key, true);
         _input.Modifier(key, false);
+        if (alt) _input.Modifier("Alt_L", false);
         if (shift) _input.Modifier("Shift_L", false);
         if (control) _input.Modifier("Control_L", false);
         await Pause();
@@ -310,7 +476,7 @@ internal static class Program
             if (_display == IntPtr.Zero) throw new InvalidOperationException("Cannot open X11 display.");
         }
         public void Move(PixelPoint point) { XTestFakeMotionEvent(_display, -1, point.X, point.Y, 0); XFlush(_display); }
-        public void Button(bool down) { XTestFakeButtonEvent(_display, 1, down, 0); XFlush(_display); }
+        public void Button(bool down, uint button = 1) { XTestFakeButtonEvent(_display, button, down, 0); XFlush(_display); }
         public void Modifier(string key, bool down)
         {
             var code = XKeysymToKeycode(_display, XStringToKeysym(key));

@@ -2,7 +2,7 @@
 
 一个独立编写的 CSV / TSV 表格编辑器（Avalonia + .NET 8），功能参考 Ron's Data Edit，但不包含其任何代码或资源。
 
-目前尚未达到 Ron’s Editor 的 1:1。已有功能、确认的限制和待对照项目见 [操作对照与验收清单](docs/RONS_PARITY.md)。
+对照目标已确定为新版 **Ron’s Data Edit**，目前尚未达到 1:1。已有功能、确认的限制和待对照项目见 [操作对照与验收清单](docs/RONS_PARITY.md)。
 
 ## 功能
 - 打开：自动识别分隔符（`,` Tab `;` `|`）、编码（UTF-8/BOM、UTF-16、Latin-1）、引号内换行；拖放文件、Finder“打开方式”
@@ -53,3 +53,11 @@ xattr -cr TableEdit.app && codesign --force --deep --sign - TableEdit.app
 ### Interaction checks
 
 See [tests/README.md](tests/README.md) for native mouse/keyboard regression checks. These cover cell selection, drag/Shift ranges, deletion/undo, sorting, duplicate filtering, editing and edge scrolling.
+
+## 选区内批量操作（1.3.1）
+
+- **Find & Replace** 的 **Scope** 可选 **Visible cells**（可见单元格）、**Current column**（当前可见列）或 **Selected cells**（选中单元格）。
+- 选择 **Selected cells** 时记录当前选区；连续查找、计数和替换都保留该范围。要换范围，在表格中重新选择后点击 **Use current selection**。
+- 排序后仍追踪原来的记录；筛选隐藏的行不参与操作。切换文件或重建列后会要求重新选择，避免沿用旧范围。
+- **Data › Selected Cells** 可对选区去空白、转换大小写或标题大小写；右键菜单也提供去空白和大小写转换。
+- 批量替换与转换可以一次撤销/重做；清空或修改单元格后，当前搜索及重复筛选会刷新。

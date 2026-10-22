@@ -84,6 +84,9 @@ public partial class MainWindow
                 Action("Copy Cells", () => _ = CopyCellsAsync()),
                 Action("Paste Cells", () => _ = PasteCellsAsync()),
                 Action("Clear Cells", ClearSelectedCells),
+                Action("Trim Selected Cells", () => TransformSelectedCells("Trim Selected Cells", s => s.Trim())),
+                Action("UPPERCASE Selected Cells", () => TransformSelectedCells("Uppercase Selected Cells", s => s.ToUpper(System.Globalization.CultureInfo.CurrentCulture))),
+                Action("lowercase Selected Cells", () => TransformSelectedCells("Lowercase Selected Cells", s => s.ToLower(System.Globalization.CultureInfo.CurrentCulture))),
                 new Separator(),
                 Action("Select Row", SelectCurrentRow),
                 Action("Select Column", () => SelectColumn(CurrentCol)),
@@ -325,14 +328,22 @@ public partial class MainWindow
         catch (Exception ex) { StatusText.Text = $"Could not copy cells: {ex.Message}"; return false; }
     }
 
-    private void ClearSelectedCells()
+    private void ClearSelectedCells() => TransformSelectedCells("Clear Cells", _ => "");
+
+    private void TransformSelectedCells(string name, Func<string, string> transform)
     {
-        if (!Table.CommitEdit() || !_cells.HasSelection) return;
+        if (!Table.CommitEdit()) return;
+        if (!_cells.HasSelection) { StatusText.Text = "Select the cells to change first."; return; }
         var changes = new List<(Row Row, int Col, string Old, string New)>();
         for (int r = _cells.Top; r <= _cells.Bottom; r++)
             for (int c = _cells.Left; c <= _cells.Right; c++)
-                if (_visible[r].Cells[c].Length > 0) changes.Add((_visible[r], c, _visible[r].Cells[c], ""));
-        ApplyCellChanges("Clear Cells", changes);
+            {
+                var value = _visible[r].Cells[c];
+                var transformed = transform(value);
+                if (value != transformed) changes.Add((_visible[r], c, value, transformed));
+            }
+        ApplyCellChanges(name, changes);
+        if (changes.Count == 0) StatusText.Text = $"{name}: no cells changed.";
     }
 
     private async Task PasteCellsAsync()
@@ -375,7 +386,7 @@ public partial class MainWindow
         void Apply(bool undo)
         {
             foreach (var (row, col, old, value) in changes) row.Cells[col] = undo ? old : value;
-            if (DuplicateFilterActive) ApplyFilter();
+            if (DuplicateFilterActive || !CurrentSearch().IsEmpty) ApplyFilter();
         }
         Apply(false);
         Push(new UndoEntry(name, () => Apply(true), () => Apply(false), changes.Count));

@@ -5,7 +5,8 @@ using Avalonia.Layout;
 
 namespace TableEdit;
 
-public sealed record SearchOptions(string Find, string Replace, bool MatchCase, bool WholeCell, bool UseRegex, bool CurrentColumnOnly)
+public sealed record SearchOptions(string Find, string Replace, bool MatchCase, bool WholeCell, bool UseRegex,
+    SearchScope Scope, SearchSelection? Selection = null)
 {
     /// <summary>Returns null when the pattern is an invalid regex.</summary>
     public Regex? BuildRegex()
@@ -27,26 +28,51 @@ public sealed record SearchOptions(string Find, string Replace, bool MatchCase, 
 public sealed class FindReplaceWindow : Window
 {
     private readonly MainWindow _owner;
-    private readonly TextBox _find = new() { Watermark = "Find" };
-    private readonly TextBox _replace = new() { Watermark = "Replace with" };
+    private readonly TextBox _find = new() { Name = "FindText", Watermark = "Find" };
+    private readonly TextBox _replace = new() { Name = "ReplaceText", Watermark = "Replace with" };
     private readonly CheckBox _case = new() { Content = "Match case" };
     private readonly CheckBox _whole = new() { Content = "Whole cell" };
     private readonly CheckBox _regex = new() { Content = "Regular expression" };
-    private readonly CheckBox _column = new() { Content = "Current column only" };
-    private readonly TextBlock _status = new() { Opacity = 0.7 };
+    private readonly ComboBox _scope = new()
+    {
+        Name = "SearchScope", MinWidth = 190,
+        ItemsSource = new[] { "Visible cells", "Current column", "Selected cells" },
+        SelectedIndex = 0,
+    };
+    private readonly TextBlock _selectionInfo = new() { Opacity = 0.7, TextWrapping = Avalonia.Media.TextWrapping.Wrap };
+    private readonly TextBlock _status = new() { Name = "SearchStatus", Opacity = 0.7, TextWrapping = Avalonia.Media.TextWrapping.Wrap };
+    private SearchSelection? _selection;
 
     public FindReplaceWindow(MainWindow owner)
     {
         _owner = owner;
         Title = "Find & Replace";
-        Width = 420;
+        Width = 520;
         SizeToContent = SizeToContent.Height;
         CanResize = false;
         ShowInTaskbar = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
-        foreach (var box in new[] { _case, _whole, _regex, _column })
+        foreach (var box in new[] { _case, _whole, _regex })
             box.Margin = new Thickness(0, 0, 12, 0);
+
+        var useSelection = new Button { Name = "UseSelection", Content = "Use current selection", IsVisible = false };
+        void CaptureSelection()
+        {
+            _selection = _owner.CaptureSearchSelection();
+            _selectionInfo.Text = _selection == null
+                ? "Select cells in the table, then click Use current selection."
+                : $"Captured {_selection.CellCount:N0} cells. Finding matches keeps this search region. Use current selection to change it.";
+        }
+        useSelection.Click += (_, _) => CaptureSelection();
+        _scope.SelectionChanged += (_, _) =>
+        {
+            bool selected = _scope.SelectedIndex == (int)SearchScope.SelectedCells;
+            useSelection.IsVisible = selected;
+            _selectionInfo.IsVisible = selected;
+            if (selected) CaptureSelection();
+        };
+        _selectionInfo.IsVisible = false;
 
         var next = new Button { Content = "Find Next", IsDefault = true };
         var count = new Button { Content = "Count" };
@@ -66,7 +92,13 @@ public sealed class FindReplaceWindow : Window
             {
                 _find,
                 _replace,
-                new WrapPanel { Children = { _case, _whole, _regex, _column } },
+                new WrapPanel { Children = { _case, _whole, _regex } },
+                new StackPanel
+                {
+                    Orientation = Orientation.Horizontal, Spacing = 8,
+                    Children = { new TextBlock { Text = "Scope", VerticalAlignment = VerticalAlignment.Center }, _scope, useSelection },
+                },
+                _selectionInfo,
                 new StackPanel
                 {
                     Orientation = Orientation.Horizontal,
@@ -87,7 +119,8 @@ public sealed class FindReplaceWindow : Window
         _case.IsChecked == true,
         _whole.IsChecked == true,
         _regex.IsChecked == true,
-        _column.IsChecked == true);
+        (SearchScope)_scope.SelectedIndex,
+        _selection);
 
     private void Report(string message) => _status.Text = message;
 }
