@@ -192,6 +192,8 @@ public partial class MainWindow : Window
                 Item("Paste Rows from Clipboard", () => _ = PasteRowsAsync(), Key.V, KeyModifiers.Shift),
                 Item("Select All Rows", () => Table.SelectAll(), Key.A, KeyModifiers.Shift)),
             Sub("Column",
+                Item("Auto-Fill Column…", () => _ = AutoFillAsync(), Key.F, KeyModifiers.Shift),
+                Sep(),
                 Item("Insert Column…", () => _ = InsertColumnAsync()),
                 Item("Rename Column…", () => _ = RenameColumnAsync(), Key.R, KeyModifiers.Shift),
                 Item("Delete Column", DeleteColumn),
@@ -206,6 +208,8 @@ public partial class MainWindow : Window
                 Sep(),
                 _headerToggle),
             Sub("Data",
+                Item("Auto-Fill Column…", () => _ = AutoFillAsync()),
+                Sep(),
                 Item("Trim Whitespace", TrimWhitespace),
                 Item("Remove Empty Rows", RemoveEmptyRows),
                 Item("Remove Duplicate Rows", RemoveDuplicateRows),
@@ -1031,6 +1035,69 @@ public partial class MainWindow : Window
             return true;
         });
         _headerToggle.IsChecked = _hasHeader;
+    }
+
+    // ───────────────────────────── auto-fill ─────────────────────────────
+
+    private async Task AutoFillAsync()
+    {
+        Table.CommitEdit();
+        var names = _headers.Select((_, i) => ColumnName(i)).ToList();
+        var request = await new AutoFillWindow(names, CurrentCol, SelectedRows().Count > 1).ShowDialog<FillRequest?>(this);
+        if (request != null) ApplyFill(request);
+    }
+
+    /// <summary>Fills (and optionally creates) a column from a pattern in one undoable step.</summary>
+    public void ApplyFill(FillRequest request)
+    {
+        var selected = SelectedRows().ToHashSet();
+        var visible = _visible.ToHashSet();
+        int filled = 0, added = 0;
+
+        Structural("Auto-Fill", () =>
+        {
+            int col = request.Column;
+            if (col < 0)
+            {
+                _headers.Add(request.NewColumnName);
+                foreach (var r in _rows) r.EnsureWidth(_headers.Count);
+                col = _headers.Count - 1;
+            }
+
+            var newRows = new HashSet<Row>();
+            double order = _rows.Count > 0 ? _rows.Max(r => r.Order) : 0;
+            for (int i = 0; i < request.AddRows; i++)
+            {
+                var row = new Row(Enumerable.Repeat("", _headers.Count)) { Order = ++order };
+                _rows.Add(row);
+                newRows.Add(row);
+            }
+            added = newRows.Count;
+
+            // %[Column]% lookups use the names shown in the header row; the first match wins.
+            var lookup = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < _headers.Count; i++) lookup.TryAdd(ColumnName(i), i);
+
+            var rng = new Random();
+            for (int i = 0; i < _rows.Count; i++)
+            {
+                var row = _rows[i];
+                row.EnsureWidth(col + 1);
+                bool target = newRows.Contains(row) || request.Scope switch
+                {
+                    FillScope.EmptyCells => string.IsNullOrWhiteSpace(row.Cells[col]),
+                    FillScope.SelectedRows => selected.Contains(row),
+                    FillScope.VisibleRows => visible.Contains(row),
+                    _ => true,
+                };
+                if (!target) continue;
+                row.Cells[col] = request.Pattern.Generate(rng, i + 1,
+                    name => lookup.TryGetValue(name, out var c) && c < row.Cells.Count ? row.Cells[c] : null);
+                filled++;
+            }
+            return filled > 0 || request.Column < 0;
+        });
+        StatusText.Text = $"Auto-filled {filled:N0} cells" + (added > 0 ? $", added {added:N0} rows." : ".");
     }
 
     // ───────────────────────────── data cleaning ─────────────────────────────
