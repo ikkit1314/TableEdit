@@ -1,0 +1,72 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="TableEdit.MainWindow"
+        Width="1180" Height="760" MinWidth="640" MinHeight="400"
+        Title="TableEdit"
+        DragDrop.AllowDrop="True">
+  <DockPanel>
+    <NativeMenuBar DockPanel.Dock="Top" />
+
+    <Border DockPanel.Dock="Top" Padding="10,8"
+            BorderThickness="0,0,0,1"
+            BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+      <DockPanel>
+        <TextBlock x:Name="MatchCount" DockPanel.Dock="Right" VerticalAlignment="Center"
+                   Margin="12,0,4,0" Opacity="0.75" />
+        <Button x:Name="NextMatchButton" DockPanel.Dock="Right" Content="↓" Margin="4,0,0,0"
+                ToolTip.Tip="Next matching cell (⌘G)" />
+        <Button x:Name="PrevMatchButton" DockPanel.Dock="Right" Content="↑" Margin="8,0,0,0"
+                ToolTip.Tip="Previous matching cell (⇧⌘G)" />
+        <CheckBox x:Name="FilterCase" DockPanel.Dock="Right" Content="Aa" Margin="8,0,0,0"
+                  ToolTip.Tip="Match case and accents" />
+        <CheckBox x:Name="FilterInvert" DockPanel.Dock="Right" Content="Not" Margin="8,0,0,0"
+                  ToolTip.Tip="Show rows that do NOT match" />
+        <ComboBox x:Name="FilterMode" DockPanel.Dock="Right" Width="120" Margin="8,0,0,0" SelectedIndex="0"
+                  ToolTip.Tip="All words must match, or any one word">
+          <ComboBoxItem Content="All words" />
+          <ComboBoxItem Content="Any word" />
+        </ComboBox>
+        <ComboBox x:Name="FilterColumn" DockPanel.Dock="Right" Width="170" Margin="8,0,0,0"
+                  ToolTip.Tip="Search in this column only" />
+        <TextBox x:Name="FilterBox" MaxWidth="560" HorizontalAlignment="Left" MinWidth="300"
+                 Watermark="Search…  words · &quot;phrase&quot; · wild*card · Esc clears">
+          <TextBox.InnerRightContent>
+            <Button x:Name="ClearFilterButton" Content="✕" Padding="8,2" Background="Transparent"
+                    BorderThickness="0" IsVisible="False" ToolTip.Tip="Clear search" />
+          </TextBox.InnerRightContent>
+        </TextBox>
+      </DockPanel>
+    </Border>
+
+    <Border DockPanel.Dock="Bottom" Padding="10,4"
+            BorderThickness="0,1,0,0"
+            BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+      <DockPanel>
+        <TextBlock x:Name="StatusRight" DockPanel.Dock="Right" Opacity="0.75" />
+        <TextBlock x:Name="StatusText" Opacity="0.75" />
+      </DockPanel>
+    </Border>
+
+    <Grid>
+      <DataGrid x:Name="Table"
+                AutoGenerateColumns="False"
+                CanUserResizeColumns="True"
+                CanUserReorderColumns="False"
+                CanUserSortColumns="True"
+                SelectionMode="Extended"
+                HeadersVisibility="All"
+                GridLinesVisibility="All"
+                ClipboardCopyMode="ExcludeHeader"
+                RowHeaderWidth="64"
+                IsReadOnly="False" />
+      <TextBlock x:Name="EmptyHint"
+                 Text="Open a CSV / TSV file (⌘O), or drop one here"
+                 HorizontalAlignment="Center" VerticalAlignment="Center"
+                 FontSize="16" Opacity="0.55" IsHitTestVisible="False" />
+      <TextBlock x:Name="NoMatches"
+                 Text="No rows match your search"
+                 HorizontalAlignment="Center" VerticalAlignment="Center"
+                 FontSize="16" Opacity="0.55" IsHitTestVisible="False" IsVisible="False" />
+    </Grid>
+  </DockPanel>
+</Window>
