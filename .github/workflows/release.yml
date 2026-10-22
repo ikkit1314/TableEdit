@@ -1,0 +1,77 @@
+name: Release macOS
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.426'
+      - name: Verify release version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import os, plistlib, xml.etree.ElementTree as ET
+          version = os.environ['RELEASE_TAG'].removeprefix('v')
+          assert ET.parse('src/TableEdit.csproj').findtext('.//Version') == version
+          with open('packaging/Info.plist', 'rb') as stream:
+              plist = plistlib.load(stream)
+          assert plist['CFBundleVersion'] == version
+          assert plist['CFBundleShortVersionString'] == version
+          PY
+      - name: Build macOS Apple Silicon and Intel packages
+        run: python3 packaging/package_macos.py
+      - name: Verify and name release assets
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, os, plistlib, shutil, zipfile
+          from pathlib import Path
+          version = os.environ['RELEASE_TAG'].removeprefix('v')
+          checksums = []
+          for arch in ('arm64', 'x64'):
+              source = Path(f'dist/TableEdit-macos-{arch}.zip')
+              with zipfile.ZipFile(source) as archive:
+                  assert archive.testzip() is None
+                  plist = plistlib.loads(archive.read('TableEdit.app/Contents/Info.plist'))
+                  assert plist['CFBundleShortVersionString'] == version
+                  for executable in ('TableEdit.app/Contents/MacOS/TableEdit', 'first-run.command'):
+                      assert (archive.getinfo(executable).external_attr >> 16) & 0o111
+              target = source.with_name(f'TableEdit-{version}-macos-{arch}.zip')
+              shutil.copyfile(source, target)
+              checksums.append(f'{hashlib.sha256(target.read_bytes()).hexdigest()}  {target.name}\n')
+          Path('dist/SHA256SUMS.txt').write_text(''.join(checksums))
+          PY
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          notes="packaging/releases/${RELEASE_TAG}.md"
+          args=(--generate-notes)
+          if [ -f "$notes" ]; then
+            args=(--notes-file "$notes")
+          fi
+          gh release create "$RELEASE_TAG" \
+            "dist/TableEdit-${version}-macos-arm64.zip" \
+            "dist/TableEdit-${version}-macos-x64.zip" \
+            dist/SHA256SUMS.txt \
+            --verify-tag --title "TableEdit $RELEASE_TAG" "${args[@]}"
