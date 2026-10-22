@@ -5,7 +5,7 @@
 ## 功能
 - 打开：自动识别分隔符（`,` Tab `;` `|`）、编码（UTF-8/BOM、UTF-16、Latin-1）、引号内换行；拖放文件、Finder“打开方式”
 - 编辑单元格、插入/复制/删除行、从剪贴板粘贴行、插入/重命名/删除/移动列、首行作为表头开关
-- 点击列头排序：↑ 升序 → ↓ 降序 → 恢复原始顺序。数字、日期、文本分开比较（"Item 2" 排在 "Item 10" 前，`1,5` 这类欧式小数也认），空值永远排在最后；30 万行约 0.2–0.6 秒
+- 在 Column 菜单中选择升序、降序或恢复原始顺序。数字、日期、文本分开比较（"Item 2" 排在 "Item 10" 前，`1,5` 这类欧式小数也认），空值永远排在最后；30 万行约 0.2–0.6 秒
 - 搜索（⌘F）：输入即筛选；多个词用空格分开（"全部词"或"任一词"都可以选）；`"短语"` 按整句匹配；`*` 和 `?` 是通配符；"Not" 用来取反；默认忽略大小写和重音（cafe 能找到 Café）；可以只搜某一列；匹配的格子会高亮，Enter / ⌘G 跳到下一个，⇧⌘G 跳到上一个
 - 自动填充列（Column › Auto-Fill Column…，⇧⌘F）：按模板生成数据，可以填到现有列，也可以新建一列，还能顺便在末尾加 N 行。可选择填全部行、只填空格、只填选中行，或只填搜索结果里的行；可以撤销
   - `%n7%` 7 位数字，`%c7%` / `%C7%` 7 个小写 / 大写字母，`%a7%` / `%A7%` 字母数字混合（数字可以写任意长度）
@@ -35,3 +35,11 @@ xattr -cr TableEdit.app && codesign --force --deep --sign - TableEdit.app
 
 ## 在 Mac 上直接编译
 安装 .NET 8 SDK 后运行 `packaging/build-on-mac.sh`。
+
+## Row and column selection
+
+- Click a row number or use **Select Row** / **Shift+Space** to select one row. Ctrl/Cmd-click adds rows; Shift-click selects a range.
+- Click a column header or use **Select Column** / **Ctrl+Space** to select that column in the visible rows. Sorting is available in the **Column** menu.
+- Select a cell, then press **Ctrl+Shift+Down** to select its column from that row to the last visible row. **Ctrl+Shift+Up** selects through the first visible row. These shortcuts also accept Cmd on macOS. While editing text, the editor keeps its normal keyboard behavior.
+- **Ctrl/Cmd+C** copies only the selected column cells, in their displayed order. **Escape** returns to row selection.
+- Select a row and click **Find Row Duplicates** (also in Edit and Data). It shows the original plus rows with exactly the same values in every column, including case and whitespace. It searches the whole document and does not delete or edit rows. **Show All** clears duplicate and search filters.

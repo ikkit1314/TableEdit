@@ -190,7 +190,10 @@ public partial class MainWindow : Window
                 Item("Duplicate Selected Rows", DuplicateRows, Key.D),
                 Item("Delete Selected Rows", DeleteRows, Key.Back),
                 Item("Paste Rows from Clipboard", () => _ = PasteRowsAsync(), Key.V, KeyModifiers.Shift),
-                Item("Select All Rows", () => Table.SelectAll(), Key.A, KeyModifiers.Shift)),
+                Item("Select Current Row", SelectCurrentRow),
+                Item("Select Current Column", () => SelectColumn(CurrentCol)),
+                Item("Find Duplicates of Selected Row", FindSelectedRowDuplicates),
+                Item("Select All Rows", () => { ClearCellSelection(); Table.SelectAll(); }, Key.A, KeyModifiers.Shift)),
             Sub("Column",
                 Item("Auto-Fill Column…", () => _ = AutoFillAsync(), Key.F, KeyModifiers.Shift),
                 Sep(),
@@ -212,6 +215,7 @@ public partial class MainWindow : Window
                 Sep(),
                 Item("Trim Whitespace", TrimWhitespace),
                 Item("Remove Empty Rows", RemoveEmptyRows),
+                Item("Find Duplicates of Selected Row", FindSelectedRowDuplicates),
                 Item("Remove Duplicate Rows", RemoveDuplicateRows),
                 Item("Fill Empty Cells from Above (Current Column)", FillDown),
                 Sep(),
@@ -225,10 +229,11 @@ public partial class MainWindow : Window
 
     // ───────────────────────────── grid wiring ─────────────────────────────
 
-    private int CurrentCol => Table.CurrentColumn is { } c ? Table.Columns.IndexOf(c) : -1;
+    private int CurrentCol => _selectionColumn >= 0 ? _selectionColumn : Table.CurrentColumn is { } c ? Table.Columns.IndexOf(c) : -1;
 
     private void WireGrid()
     {
+        WireSelection();
         Table.LoadingRow += (_, e) => e.Row.Header = (e.Row.Index + 1).ToString("N0", CultureInfo.CurrentCulture);
 
         Table.BeginningEdit += (_, e) =>
@@ -273,11 +278,8 @@ public partial class MainWindow : Window
         Table.Sorting += (_, e) =>
         {
             e.Handled = true;
-            // Header clicks cycle: ascending → descending → original file order.
-            int col = Table.Columns.IndexOf(e.Column);
-            if (col != _sortColumn) _ = SortByAsync(col, true);
-            else if (_sortAscending) _ = SortByAsync(col, false);
-            else _ = ClearSortAsync();
+            // Header clicks select a column; explicit sort commands remain in the Column menu.
+            SelectColumn(Table.Columns.IndexOf(e.Column));
         };
 
         Table.CurrentCellChanged += (_, _) => UpdateCellStatus();
@@ -286,6 +288,7 @@ public partial class MainWindow : Window
 
     private void RebuildColumns()
     {
+        ClearCellSelection();
         Table.Columns.Clear();
         for (int i = 0; i < _headers.Count; i++)
         {
@@ -327,9 +330,15 @@ public partial class MainWindow : Window
                 var cell = new Border { Child = text };
                 cell.Bind(Border.BackgroundProperty, new MultiBinding
                 {
-                    Bindings = { new Binding(path), new Binding(nameof(SearchHighlight.Version)) { Source = _highlight } },
+                    Bindings = { new Binding(path), new Binding(nameof(SearchHighlight.Version)) { Source = _highlight }, new Binding(".") },
                     Converter = highlight,
                 });
+                cell.AddHandler(PointerPressedEvent, (_, e) =>
+                {
+                    if (!e.GetCurrentPoint(cell).Properties.IsLeftButtonPressed || cell.DataContext is not Row row) return;
+                    _selectionAnchor = row;
+                    _selectionAnchorColumn = i;
+                }, RoutingStrategies.Tunnel);
                 return cell;
             }),
             CellEditingTemplate = new FuncDataTemplate<Row>((_, _) =>
@@ -393,6 +402,7 @@ public partial class MainWindow : Window
         _hasHeader = true;
         _headerToggle.IsChecked = true;
         _sortColumn = -1;
+        _duplicateReference = null;
         RebuildColumns();
         ApplyFilter();
     }
@@ -439,6 +449,7 @@ public partial class MainWindow : Window
         _redo.Clear();
         UpdateUndoMenu();
 
+        _duplicateReference = null;
         RebuildColumns();
         ApplyFilter();
         _dirty = false;
@@ -613,6 +624,11 @@ public partial class MainWindow : Window
 
     private void UpdateCellStatus()
     {
+        if (_selectionColumn >= 0)
+        {
+            StatusRight.Text = $"{_selectedCellRows.Count:N0} cells selected · {ColumnName(_selectionColumn)}";
+            return;
+        }
         int col = CurrentCol;
         int row = Table.SelectedItem is Row r ? _visible.IndexOf(r) : -1;
         int selected = Table.SelectedItems?.Count ?? 0;
@@ -681,6 +697,7 @@ public partial class MainWindow : Window
         _hasHeader = s.HasHeader;
         _headerToggle.IsChecked = _hasHeader;
         if (_sortColumn >= _headers.Count) _sortColumn = -1;
+        _duplicateReference = null;
         RebuildColumns();
         ApplyFilter();
     }
@@ -692,6 +709,7 @@ public partial class MainWindow : Window
         var before = Snapshot();
         if (!operation()) return;
         var after = Snapshot();
+        _duplicateReference = null;
         RebuildColumns();
         ApplyFilter();
         long cost = (long)(before.Values.Length + after.Values.Length) * Math.Max(1, _headers.Count);
@@ -729,6 +747,12 @@ public partial class MainWindow : Window
 
     private void ShowRows(List<Row> rows, bool searching)
     {
+        if (_duplicateReference != null)
+        {
+            rows = rows.Where(r => r.Cells.SequenceEqual(_duplicateReference, StringComparer.Ordinal)).ToList();
+            searching = true;
+        }
+        ClearCellSelection();
         var keep = Table.SelectedItem as Row;
         _visible = new ObservableCollection<Row>(rows);
         Table.ItemsSource = _visible;
@@ -795,6 +819,7 @@ public partial class MainWindow : Window
 
     private void ClearFilter()
     {
+        _duplicateReference = null;
         _suppressFilter = true;
         FilterBox.Text = "";
         FilterColumn.SelectedIndex = 0;

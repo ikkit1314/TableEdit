@@ -38,6 +38,13 @@
       </DockPanel>
     </Border>
 
+    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="6" Margin="10,4">
+      <Button x:Name="SelectRowButton" Content="Select Row" ToolTip.Tip="Select the current row (Shift+Space); click row numbers to select rows" />
+      <Button x:Name="SelectColumnButton" Content="Select Column" ToolTip.Tip="Select all visible cells in the current column (Ctrl+Space); Ctrl+Shift+Down extends to the last visible row" />
+      <Button x:Name="FindDuplicatesButton" Content="Find Row Duplicates" ToolTip.Tip="Show rows whose values exactly match the selected row in every column" />
+      <Button x:Name="ShowAllButton" Content="Show All" ToolTip.Tip="Clear search and duplicate filters" />
+    </StackPanel>
+
     <Border DockPanel.Dock="Bottom" Padding="10,4"
             BorderThickness="0,1,0,0"
             BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
