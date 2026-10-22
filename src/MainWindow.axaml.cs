@@ -102,8 +102,8 @@ public partial class MainWindow : Window
             }
             else if (e.Key == Key.Down && _visible.Count > 0)
             {
-                Table.SelectedItem = _visible[0];
-                Table.ScrollIntoView(_visible[0], Table.Columns.FirstOrDefault());
+                SelectCell(0, Math.Max(0, CurrentCol));
+                Table.ScrollIntoView(_visible[0], Table.CurrentColumn);
                 Table.Focus();
                 e.Handled = true;
             }
@@ -192,8 +192,8 @@ public partial class MainWindow : Window
                 Item("Paste Rows from Clipboard", () => _ = PasteRowsAsync(), Key.V, KeyModifiers.Shift),
                 Item("Select Current Row", SelectCurrentRow),
                 Item("Select Current Column", () => SelectColumn(CurrentCol)),
-                Item("Find Duplicates of Selected Row", FindSelectedRowDuplicates),
-                Item("Select All Rows", () => { ClearCellSelection(); Table.SelectAll(); }, Key.A, KeyModifiers.Shift)),
+                Item("Find Duplicates in Current Column", FindColumnDuplicates),
+                Item("Select All Cells", SelectAllCells, Key.A, KeyModifiers.Shift)),
             Sub("Column",
                 Item("Auto-Fill Column…", () => _ = AutoFillAsync(), Key.F, KeyModifiers.Shift),
                 Sep(),
@@ -215,7 +215,7 @@ public partial class MainWindow : Window
                 Sep(),
                 Item("Trim Whitespace", TrimWhitespace),
                 Item("Remove Empty Rows", RemoveEmptyRows),
-                Item("Find Duplicates of Selected Row", FindSelectedRowDuplicates),
+                Item("Find Duplicates in Current Column", FindColumnDuplicates),
                 Item("Remove Duplicate Rows", RemoveDuplicateRows),
                 Item("Fill Empty Cells from Above (Current Column)", FillDown),
                 Sep(),
@@ -229,7 +229,7 @@ public partial class MainWindow : Window
 
     // ───────────────────────────── grid wiring ─────────────────────────────
 
-    private int CurrentCol => _selectionColumn >= 0 ? _selectionColumn : Table.CurrentColumn is { } c ? Table.Columns.IndexOf(c) : -1;
+    private int CurrentCol => _cells.HasSelection ? _cells.Column : Table.CurrentColumn is { } c ? Table.Columns.IndexOf(c) : -1;
 
     private void WireGrid()
     {
@@ -272,14 +272,22 @@ public partial class MainWindow : Window
             var oldValue = _editOld;
             var newValue = r.Cells[c];
             if (oldValue == newValue) return;
-            Push(new UndoEntry("Edit Cell", () => r.Cells[c] = oldValue, () => r.Cells[c] = newValue));
+            void Apply(string value)
+            {
+                r.Cells[c] = value;
+                if (DuplicateFilterActive) ApplyFilter();
+            }
+            Push(new UndoEntry("Edit Cell", () => Apply(oldValue), () => Apply(newValue)));
+            if (DuplicateFilterActive) Dispatcher.UIThread.Post(ApplyFilter);
         };
 
         Table.Sorting += (_, e) =>
         {
             e.Handled = true;
-            // Header clicks select a column; explicit sort commands remain in the Column menu.
-            SelectColumn(Table.Columns.IndexOf(e.Column));
+            int col = Table.Columns.IndexOf(e.Column);
+            ClearCellSelection();
+            Table.CurrentColumn = e.Column;
+            _ = SortByAsync(col, col != _sortColumn || !_sortAscending);
         };
 
         Table.CurrentCellChanged += (_, _) => UpdateCellStatus();
@@ -333,17 +341,12 @@ public partial class MainWindow : Window
                     Bindings = { new Binding(path), new Binding(nameof(SearchHighlight.Version)) { Source = _highlight }, new Binding(".") },
                     Converter = highlight,
                 });
-                cell.AddHandler(PointerPressedEvent, (_, e) =>
-                {
-                    if (!e.GetCurrentPoint(cell).Properties.IsLeftButtonPressed || cell.DataContext is not Row row) return;
-                    _selectionAnchor = row;
-                    _selectionAnchorColumn = i;
-                }, RoutingStrategies.Tunnel);
+                cell.Tag = i;
                 return cell;
             }),
             CellEditingTemplate = new FuncDataTemplate<Row>((_, _) =>
             {
-                var box = new TextBox { VerticalContentAlignment = VerticalAlignment.Center, AcceptsReturn = false };
+                var box = new TextBox { Tag = i, VerticalContentAlignment = VerticalAlignment.Center, AcceptsReturn = false };
                 box.Bind(TextBox.TextProperty, new Binding(path) { Mode = BindingMode.TwoWay });
                 return box;
             }),
@@ -402,7 +405,7 @@ public partial class MainWindow : Window
         _hasHeader = true;
         _headerToggle.IsChecked = true;
         _sortColumn = -1;
-        _duplicateReference = null;
+        ResetDuplicateFilter();
         RebuildColumns();
         ApplyFilter();
     }
@@ -449,7 +452,7 @@ public partial class MainWindow : Window
         _redo.Clear();
         UpdateUndoMenu();
 
-        _duplicateReference = null;
+        ResetDuplicateFilter();
         RebuildColumns();
         ApplyFilter();
         _dirty = false;
@@ -624,9 +627,11 @@ public partial class MainWindow : Window
 
     private void UpdateCellStatus()
     {
-        if (_selectionColumn >= 0)
+        if (_cells.HasSelection)
         {
-            StatusRight.Text = $"{_selectedCellRows.Count:N0} cells selected · {ColumnName(_selectionColumn)}";
+            StatusRight.Text = _cells.Count == 1
+                ? $"Row {_cells.Row + 1:N0} · {ColumnName(_cells.Column)}"
+                : $"{_cells.Count:N0} cells · rows {_cells.Top + 1:N0}–{_cells.Bottom + 1:N0} · {ColumnName(_cells.Left)}–{ColumnName(_cells.Right)}";
             return;
         }
         int col = CurrentCol;
@@ -697,7 +702,7 @@ public partial class MainWindow : Window
         _hasHeader = s.HasHeader;
         _headerToggle.IsChecked = _hasHeader;
         if (_sortColumn >= _headers.Count) _sortColumn = -1;
-        _duplicateReference = null;
+        ResetDuplicateFilter();
         RebuildColumns();
         ApplyFilter();
     }
@@ -709,7 +714,7 @@ public partial class MainWindow : Window
         var before = Snapshot();
         if (!operation()) return;
         var after = Snapshot();
-        _duplicateReference = null;
+        ResetDuplicateFilter();
         RebuildColumns();
         ApplyFilter();
         long cost = (long)(before.Values.Length + after.Values.Length) * Math.Max(1, _headers.Count);
@@ -747,14 +752,12 @@ public partial class MainWindow : Window
 
     private void ShowRows(List<Row> rows, bool searching)
     {
-        if (_duplicateReference != null)
-        {
-            rows = rows.Where(r => r.Cells.SequenceEqual(_duplicateReference, StringComparer.Ordinal)).ToList();
-            searching = true;
-        }
+        rows = FilterDuplicateRows(rows);
+        searching |= DuplicateFilterActive;
         ClearCellSelection();
         var keep = Table.SelectedItem as Row;
         _visible = new ObservableCollection<Row>(rows);
+        ReindexVisibleRows();
         Table.ItemsSource = _visible;
         if (keep != null && _visible.Contains(keep))
         {
@@ -801,8 +804,7 @@ public partial class MainWindow : Window
             var row = _visible[r];
             if (c < row.Cells.Count && search.IsCellMatch(row.Cells[c], c))
             {
-                Table.SelectedItem = row;
-                Table.CurrentColumn = Table.Columns[c];
+                SelectCell(r, c);
                 Table.ScrollIntoView(row, Table.Columns[c]);
                 StatusRight.Text = $"Match in row {r + 1:N0}, {ColumnName(c)}";
                 return;
@@ -819,7 +821,7 @@ public partial class MainWindow : Window
 
     private void ClearFilter()
     {
-        _duplicateReference = null;
+        ResetDuplicateFilter();
         _suppressFilter = true;
         FilterBox.Text = "";
         FilterColumn.SelectedIndex = 0;
@@ -884,8 +886,9 @@ public partial class MainWindow : Window
 
     // ───────────────────────────── rows ─────────────────────────────
 
-    private List<Row> SelectedRows() =>
-        (Table.SelectedItems?.OfType<Row>() ?? Enumerable.Empty<Row>()).ToList();
+    private List<Row> SelectedRows() => _cells.HasSelection
+        ? _visible.Skip(_cells.Top).Take(_cells.Bottom - _cells.Top + 1).ToList()
+        : (Table.SelectedItems?.OfType<Row>() ?? Enumerable.Empty<Row>()).ToList();
 
     /// <summary>Inserts rows after the current selection (or at the end) with lightweight undo.</summary>
     private void InsertRows(string name, List<Row> newRows)
@@ -900,7 +903,9 @@ public partial class MainWindow : Window
         for (int i = 0; i < newRows.Count; i++) newRows[i].Order = baseOrder + (i + 1) / (newRows.Count + 1.0) * 1e-3;
         _rows.InsertRange(anchor, newRows);
         for (int i = 0; i < newRows.Count; i++) _visible.Insert(visibleAnchor + i, newRows[i]);
-        Table.SelectedItem = newRows[0];
+        ClearCellSelection();
+        ReindexVisibleRows();
+        SelectCell(visibleAnchor, 0);
         Table.ScrollIntoView(newRows[0], Table.Columns.FirstOrDefault());
 
         Push(new UndoEntry(name,
@@ -922,9 +927,11 @@ public partial class MainWindow : Window
 
     private void DeleteRows()
     {
-        Table.CommitEdit();
+        if (!Table.CommitEdit()) return;
         var selected = SelectedRows();
-        if (selected.Count == 0) return;
+        if (selected.Count == 0) { StatusText.Text = "Select cells or row numbers, then Delete Rows."; return; }
+        int selectedColumn = Math.Max(0, CurrentCol);
+        ClearCellSelection();
 
         var set = selected.ToHashSet();
         var removed = new List<(int Index, Row Row)>();
@@ -934,8 +941,10 @@ public partial class MainWindow : Window
         int firstVisible = _visible.IndexOf(selected[0]);
         _rows.RemoveAll(set.Contains);
         foreach (var r in selected) _visible.Remove(r);
+        if (DuplicateFilterActive) ApplyFilter();
+        ReindexVisibleRows();
         if (_visible.Count > 0)
-            Table.SelectedItem = _visible[Math.Clamp(firstVisible, 0, _visible.Count - 1)];
+            SelectCell(Math.Clamp(firstVisible, 0, _visible.Count - 1), selectedColumn);
 
         Push(new UndoEntry(selected.Count == 1 ? "Delete Row" : "Delete Rows",
             () =>
@@ -1300,8 +1309,7 @@ public partial class MainWindow : Window
             if (rx!.IsMatch(_visible[r].Cells[c]))
             {
                 var row = _visible[r];
-                Table.SelectedItem = row;
-                Table.CurrentColumn = Table.Columns[c];
+                SelectCell(r, c);
                 Table.ScrollIntoView(row, Table.Columns[c]);
                 return $"Found in row {r + 1:N0}, {ColumnName(c)}.";
             }

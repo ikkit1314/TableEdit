@@ -5,7 +5,7 @@
 ## 功能
 - 打开：自动识别分隔符（`,` Tab `;` `|`）、编码（UTF-8/BOM、UTF-16、Latin-1）、引号内换行；拖放文件、Finder“打开方式”
 - 编辑单元格、插入/复制/删除行、从剪贴板粘贴行、插入/重命名/删除/移动列、首行作为表头开关
-- 在 Column 菜单中选择升序、降序或恢复原始顺序。数字、日期、文本分开比较（"Item 2" 排在 "Item 10" 前，`1,5` 这类欧式小数也认），空值永远排在最后；30 万行约 0.2–0.6 秒
+- 点击列头切换升序 / 降序；Column 菜单可以恢复原始顺序。数字、日期、文本分开比较（"Item 2" 排在 "Item 10" 前，`1,5` 这类欧式小数也认），空值永远排在最后；30 万行约 0.2–0.6 秒
 - 搜索（⌘F）：输入即筛选；多个词用空格分开（"全部词"或"任一词"都可以选）；`"短语"` 按整句匹配；`*` 和 `?` 是通配符；"Not" 用来取反；默认忽略大小写和重音（cafe 能找到 Café）；可以只搜某一列；匹配的格子会高亮，Enter / ⌘G 跳到下一个，⇧⌘G 跳到上一个
 - 自动填充列（Column › Auto-Fill Column…，⇧⌘F）：按模板生成数据，可以填到现有列，也可以新建一列，还能顺便在末尾加 N 行。可选择填全部行、只填空格、只填选中行，或只填搜索结果里的行；可以撤销
   - `%n7%` 7 位数字，`%c7%` / `%C7%` 7 个小写 / 大写字母，`%a7%` / `%A7%` 字母数字混合（数字可以写任意长度）
@@ -36,10 +36,18 @@ xattr -cr TableEdit.app && codesign --force --deep --sign - TableEdit.app
 ## 在 Mac 上直接编译
 安装 .NET 8 SDK 后运行 `packaging/build-on-mac.sh`。
 
-## Row and column selection
+## 单元格选择、删除与重复检查（1.3.0）
 
-- Click a row number or use **Select Row** / **Shift+Space** to select one row. Ctrl/Cmd-click adds rows; Shift-click selects a range.
-- Click a column header or use **Select Column** / **Ctrl+Space** to select that column in the visible rows. Sorting is available in the **Column** menu.
-- Select a cell, then press **Ctrl+Shift+Down** to select its column from that row to the last visible row. **Ctrl+Shift+Up** selects through the first visible row. These shortcuts also accept Cmd on macOS. While editing text, the editor keeps its normal keyboard behavior.
-- **Ctrl/Cmd+C** copies only the selected column cells, in their displayed order. **Escape** returns to row selection.
-- Select a row and click **Find Row Duplicates** (also in Edit and Data). It shows the original plus rows with exactly the same values in every column, including case and whitespace. It searches the whole document and does not delete or edit rows. **Show All** clears duplicate and search filters.
+- 单击选中一个单元格；按住鼠标拖动可框选连续的矩形区域。拖到表格边缘会自动滚动。
+- 先单击起点，再按住 **Shift** 点击终点，选中两点之间的单元格；继续 Shift 点击会保留原起点。
+- **Shift+方向键** 扩展选区；**Ctrl+Shift+↑/↓** 扩展到当前列的首行 / 末行。macOS 同时支持 Cmd。
+- **Ctrl+Space** 或 **Select Column** 选中当前列的可见单元格；点击左侧行号或 **Select Rows** 选中整行，Shift 点击行号选择连续多行。
+- 点击列标题切换 **A→Z / Z→A** 排序；选择整列请使用 Select Column 或 Ctrl+Space。
+- **Delete / Backspace** 清空选中单元格；**Delete Rows**、右键菜单或 **Ctrl/Cmd+Delete/Backspace** 删除这些单元格所在的整行。以上操作都支持撤销。
+- **Ctrl/Cmd+C / X / V** 复制、剪切、粘贴矩形单元格，使用制表符分隔列。单个值可以填满选区；超出表格大小的粘贴会提示先添加行或列。
+- 双击、**F2 / Enter** 开始编辑单元格，也可以直接输入新值。编辑状态下保留文本框的选择和快捷键操作。
+- **Find Column Duplicates** 检查当前列在整个文档中的重复值，显示每组的所有记录，包含首次出现的记录。比较区分大小写和空格，忽略空单元格；不会删除数据。删除 / 修改重复项后结果会刷新，**Show All** 清除筛选。
+
+### Interaction checks
+
+See [tests/README.md](tests/README.md) for native mouse/keyboard regression checks. These cover cell selection, drag/Shift ranges, deletion/undo, sorting, duplicate filtering, editing and edge scrolling.

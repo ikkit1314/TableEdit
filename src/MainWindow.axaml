@@ -39,9 +39,10 @@
     </Border>
 
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="6" Margin="10,4">
-      <Button x:Name="SelectRowButton" Content="Select Row" ToolTip.Tip="Select the current row (Shift+Space); click row numbers to select rows" />
+      <Button x:Name="SelectRowButton" Content="Select Rows" ToolTip.Tip="Select the current row (Shift+Space); click row numbers to select rows" />
       <Button x:Name="SelectColumnButton" Content="Select Column" ToolTip.Tip="Select all visible cells in the current column (Ctrl+Space); Ctrl+Shift+Down extends to the last visible row" />
-      <Button x:Name="FindDuplicatesButton" Content="Find Row Duplicates" ToolTip.Tip="Show rows whose values exactly match the selected row in every column" />
+      <Button x:Name="DeleteRowsButton" Content="Delete Rows" ToolTip.Tip="Delete the rows containing the selected cells (Ctrl/Cmd+Delete); Undo restores them" />
+      <Button x:Name="FindDuplicatesButton" Content="Find Column Duplicates" ToolTip.Tip="Find repeated values in the current column; exact match, empty cells ignored" />
       <Button x:Name="ShowAllButton" Content="Show All" ToolTip.Tip="Clear search and duplicate filters" />
     </StackPanel>
 
@@ -60,7 +61,7 @@
                 CanUserResizeColumns="True"
                 CanUserReorderColumns="False"
                 CanUserSortColumns="True"
-                SelectionMode="Extended"
+                SelectionMode="Single"
                 HeadersVisibility="All"
                 GridLinesVisibility="All"
                 ClipboardCopyMode="ExcludeHeader"
