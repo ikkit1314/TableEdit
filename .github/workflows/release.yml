@@ -4,26 +4,34 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing version tag to publish (for example v1.3.0)'
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   release:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.426'
       - name: Verify release version
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           python3 - <<'PY'
           import os, plistlib, xml.etree.ElementTree as ET
@@ -37,8 +45,6 @@ jobs:
       - name: Build macOS Apple Silicon and Intel packages
         run: python3 packaging/package_macos.py
       - name: Verify and name release assets
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           python3 - <<'PY'
           import hashlib, os, plistlib, shutil, zipfile
@@ -62,7 +68,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           version="${RELEASE_TAG#v}"
           notes="packaging/releases/${RELEASE_TAG}.md"
