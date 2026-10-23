@@ -42,7 +42,7 @@ def build(rid: str, icns: Path, signer=None, dmg=False) -> Path:
     publish = DIST / "publish" / rid
     shutil.rmtree(publish, ignore_errors=True)
     run("dotnet", "publish", str(SRC), "-c", "Release", "-r", rid, "--self-contained", "true",
-        "-p:UseAppHost=true", "-p:DebugType=None", "-o", str(publish))
+        "-p:UseAppHost=true", "-p:PublishSingleFile=true", "-p:DebugType=None", "-o", str(publish))
 
     app = DIST / rid / "TableEdit.app"
     shutil.rmtree(app.parent, ignore_errors=True)

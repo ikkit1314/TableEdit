@@ -2,6 +2,8 @@
 
 The version-tag workflow runs on macOS and builds both `osx-arm64` and `osx-x64`. It signs each native library and the application bundle before creating a compressed DMG containing `TableEdit.app`, an Applications link, and installation instructions. Each image is verified, mounted read-only, checked for the expected version and executable permissions, and its embedded app signature is verified before publication.
 
+Managed .NET assemblies are bundled into the main executable. Native libraries remain separate and are individually signed. This avoids placing unsigned managed DLLs in `Contents/MacOS`, where Apple's bundle signing rules treat them as nested code.
+
 ## Install
 
 1. Quit an older running copy of TableEdit.
