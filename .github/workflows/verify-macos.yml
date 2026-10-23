@@ -24,7 +24,10 @@ jobs:
       - name: Build and verify DMGs
         shell: bash
         run: |
-          if ! python3 packaging/package_macos.py --dmg 2>&1 | tee "$RUNNER_TEMP/macos-packaging.log"; then
+          if ! {
+            python3 packaging/package_macos.py --dmg &&
+              python3 packaging/smoke_macos.py
+          } 2>&1 | tee "$RUNNER_TEMP/macos-packaging.log"; then
             python3 - <<'PY'
           import os
           from pathlib import Path

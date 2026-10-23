@@ -51,29 +51,7 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
         run: python3 packaging/package_macos.py --dmg
       - name: Smoke-test native macOS application startup
-        run: |
-          python3 - <<'PY'
-          import platform, subprocess, tempfile, time
-          from pathlib import Path
-          arch = 'arm64' if platform.machine() == 'arm64' else 'x64'
-          host = Path(f'dist/osx-{arch}/TableEdit.app/Contents/MacOS/TableEdit').resolve()
-          with tempfile.TemporaryFile(mode='w+') as log:
-              process = subprocess.Popen([str(host)], stdout=log, stderr=subprocess.STDOUT)
-              try:
-                  time.sleep(5)
-                  if process.poll() is not None:
-                      log.seek(0)
-                      raise RuntimeError(f'TableEdit exited during startup: {log.read()[-4000:]}')
-                  print(f'Native macOS {arch} app remained running during startup smoke check.')
-              finally:
-                  if process.poll() is None:
-                      process.terminate()
-                      try:
-                          process.wait(timeout=10)
-                      except subprocess.TimeoutExpired:
-                          process.kill()
-                          process.wait()
-          PY
+        run: python3 packaging/smoke_macos.py
       - name: Verify and name release assets
         run: |
           python3 - <<'PY'
