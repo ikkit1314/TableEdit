@@ -6,7 +6,7 @@ The scoped-operation checks use the actual Find & Replace dialog and cell contex
 
 The 1.3.1 Release build passed all 66 checks on the prepared Linux X11 display. The native clipboard round trip was reported as skipped for the limitation described below.
 
-The 1.3.2 Release build passed 75 checks. New checks verify typing over an entire rectangular selection or column, one-step undo/redo and cancellation, actual duplicate-cell background colors, selected duplicate appearance, and clearing duplicate highlights. They also catch delayed search refreshes erasing a newly clicked selection.
+The range-typing and duplicate-highlighting implementation passed 75 checks. New checks verify typing over an entire rectangular selection or column, one-step undo/redo and cancellation, actual duplicate-cell background colors, selected duplicate appearance, and clearing duplicate highlights. They also catch delayed search refreshes erasing a newly clicked selection.
 
 Requirements: .NET 8, Linux with an X11 display, `libX11` and `libXtst`, and fonts usable by Avalonia. Run on an otherwise unused virtual display because these checks move its pointer and change focus.
 
