@@ -14,6 +14,7 @@ public partial class MainWindow
 {
     private readonly CellSelection _cells = new();
     private readonly Dictionary<Row, int> _visibleIndices = new();
+    private List<(Row Row, int Col, string Old)>? _typingTargets;
     private IPointer? _dragPointer;
     private bool _dragRows;
     private int _columnCursorRow = -1;
@@ -23,15 +24,17 @@ public partial class MainWindow
     private void WireSelection()
     {
         _highlight.IsSelected = (row, col) => _visibleIndices.TryGetValue(row, out int index) && _cells.Contains(index, col);
+        _highlight.IsDuplicate = IsDuplicateCell;
         // Native DataGrid selection tracks only the editing cursor. Our cell range owns selection visuals.
         foreach (var key in new[] { "DataGridRowSelectedBackgroundBrush", "DataGridRowSelectedHoveredBackgroundBrush",
                      "DataGridRowSelectedUnfocusedBackgroundBrush", "DataGridRowSelectedHoveredUnfocusedBackgroundBrush" })
             Table.Resources[key] = Brushes.Transparent;
-        Table.CellPointerPressed += (_, e) =>
+        Table.AddHandler(PointerPressedEvent, (_, pointer) =>
         {
-            var pointer = e.PointerPressedEventArgs;
-            if (e.Row.DataContext is not Row row || !_visibleIndices.TryGetValue(row, out int index)) return;
-            int column = Table.Columns.IndexOf(e.Column);
+            if (pointer.Source is not Visual source) return;
+            var cell = source as DataGridCell ?? source.GetVisualAncestors().OfType<DataGridCell>().FirstOrDefault();
+            if (cell?.DataContext is not Row row || cell.Content is not Control { Tag: int column } ||
+                !_visibleIndices.TryGetValue(row, out int index)) return;
             var point = pointer.GetCurrentPoint(Table);
             if (_editRow == row && _editCol == column && pointer.Source is Visual visual &&
                 (visual is TextBox || visual.GetVisualAncestors().Any(v => v is TextBox))) return;
@@ -51,7 +54,7 @@ public partial class MainWindow
                 return;
             }
             BeginSelectionDrag(pointer, false);
-        };
+        }, RoutingStrategies.Tunnel);
         Table.AddHandler(PointerPressedEvent, OnRowHeaderPressed, RoutingStrategies.Tunnel);
         Table.AddHandler(PointerMovedEvent, OnSelectionPointerMoved, RoutingStrategies.Tunnel);
         Table.AddHandler(PointerReleasedEvent, (_, e) =>
@@ -303,12 +306,26 @@ public partial class MainWindow
         if (_editRow != null || string.IsNullOrEmpty(e.Text) || !_cells.HasSelection ||
             e.Source is not Control source || (source != Table && !source.GetVisualAncestors().Contains(Table))) return;
         e.Handled = true;
-        SelectCell(_cells.Row, _cells.Column);
-        if (Table.BeginEdit() && Table.Columns[_cells.Column].GetCellContent(_visible[_cells.Row]) is TextBox editor)
+        _typingTargets = CaptureTypingTargets();
+        int row = CursorRow, column = _cells.Column;
+        Table.SelectedItem = _visible[row];
+        Table.CurrentColumn = Table.Columns[column];
+        if (Table.BeginEdit() && Table.Columns[column].GetCellContent(_visible[row]) is TextBox editor)
         {
             editor.Text = e.Text;
             editor.CaretIndex = editor.Text.Length;
         }
+        else _typingTargets = null;
+    }
+
+    private List<(Row Row, int Col, string Old)> CaptureTypingTargets()
+    {
+        var targets = new List<(Row Row, int Col, string Old)>();
+        if (!_cells.HasSelection) return targets;
+        for (int r = _cells.Top; r <= _cells.Bottom; r++)
+            for (int c = _cells.Left; c <= _cells.Right; c++)
+                targets.Add((_visible[r], c, _visible[r].Cells[c]));
+        return targets;
     }
 
     private string SelectedCellsText()
@@ -380,15 +397,19 @@ public partial class MainWindow
         ApplyCellChanges("Paste Cells", changes);
     }
 
-    private void ApplyCellChanges(string name, List<(Row Row, int Col, string Old, string New)> changes)
+    private void ApplyCellChanges(string name, List<(Row Row, int Col, string Old, string New)> changes, bool deferFilter = false)
     {
         if (changes.Count == 0) return;
-        void Apply(bool undo)
+        void Apply(bool undo, bool defer = false)
         {
             foreach (var (row, col, old, value) in changes) row.Cells[col] = undo ? old : value;
-            if (DuplicateFilterActive || !CurrentSearch().IsEmpty) ApplyFilter();
+            if (DuplicateFilterActive || !CurrentSearch().IsEmpty)
+            {
+                if (defer) Dispatcher.UIThread.Post(ApplyFilter);
+                else ApplyFilter();
+            }
         }
-        Apply(false);
+        Apply(false, deferFilter);
         Push(new UndoEntry(name, () => Apply(true), () => Apply(false), changes.Count));
         StatusText.Text = $"{name}: {changes.Count:N0} cells.";
     }

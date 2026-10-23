@@ -14,6 +14,8 @@ public sealed class SearchHighlight : INotifyPropertyChanged
     private static readonly IBrush MatchBrush = new SolidColorBrush(Color.FromArgb(0x70, 0xFF, 0xC8, 0x2E));
 
     private static readonly IBrush SelectionBrush = new SolidColorBrush(Color.FromArgb(0xA0, 0x58, 0xA6, 0xFF));
+    private static readonly IBrush DuplicateBrush = new SolidColorBrush(Color.FromArgb(0x90, 0xFF, 0xC8, 0x2E));
+    private static readonly IBrush SelectedDuplicateBrush = new SolidColorBrush(Color.FromArgb(0xB0, 0xA0, 0x8C, 0xE8));
 
     private RowSearch? _search;
     private int _version;
@@ -23,6 +25,7 @@ public sealed class SearchHighlight : INotifyPropertyChanged
     public int Version => _version;
 
     public Func<Row, int, bool>? IsSelected { get; set; }
+    public Func<Row, int, bool>? IsDuplicate { get; set; }
 
     public void Refresh()
     {
@@ -46,8 +49,13 @@ public sealed class SearchHighlight : INotifyPropertyChanged
         new FuncMultiValueConverter<object?, IBrush?>(values =>
         {
             var entries = values.ToArray();
-            if (entries.Length > 2 && entries[2] is Row row && IsSelected?.Invoke(row, column) == true)
-                return SelectionBrush;
+            if (entries.Length > 2 && entries[2] is Row row)
+            {
+                bool duplicate = IsDuplicate?.Invoke(row, column) == true;
+                if (IsSelected?.Invoke(row, column) == true)
+                    return duplicate ? SelectedDuplicateBrush : SelectionBrush;
+                if (duplicate) return DuplicateBrush;
+            }
             var cell = entries.FirstOrDefault() as string;
             return _search?.IsCellMatch(cell, column) == true ? MatchBrush : null;
         });

@@ -132,8 +132,14 @@ internal static class Program
         await Click(_window.FindControl<Button>("FindDuplicatesButton")!);
         Equal(Lines("Delta", "Alpha", "Charlie", "Echo"), Lines(Rows().Select(r => r.Cells[0]).ToArray()),
             "Find Duplicates shows repeated current-column values even when complete rows differ");
+        var duplicateBrush = (_grid.Columns[2].GetCellContent(Rows()[0]) as Border)!.Background;
+        True(duplicateBrush != null && Rows().All(r => (_grid.Columns[2].GetCellContent(r) as Border)!.Background != null) &&
+             (_grid.Columns[1].GetCellContent(Rows()[0]) as Border)!.Background == null,
+            "duplicate results visibly highlight every repeated cell in the target column only");
         True(_window.FindControl<TextBlock>("StatusText")!.Text!.Contains("2"), "duplicate result describes duplicate groups");
         await ClickCell(0, 2);
+        True(!Equals(duplicateBrush, (_grid.Columns[2].GetCellContent(Rows()[0]) as Border)!.Background),
+            "a selected duplicate remains visually distinct from an unselected duplicate");
         await Click(_window.FindControl<Button>("DeleteRowsButton")!);
         Equal(Lines("Alpha", "Echo"), Lines(Rows().Select(r => r.Cells[0]).ToArray()),
             "deleting a duplicate hides its now-unique partner without deleting that partner");
@@ -141,6 +147,8 @@ internal static class Program
         True(Rows().Count == 4, "Undo restores duplicate groups after row deletion");
         await Click(_window.FindControl<Button>("ShowAllButton")!);
         True(Rows().Count == 6, "Show All restores every row after duplicate filtering");
+        True((_grid.Columns[2].GetCellContent(Rows()[0]) as Border)!.Background == null,
+            "Show All clears duplicate highlighting as well as the duplicate filter");
         await ClickCell(0, 0);
         await Click(_window.FindControl<Button>("FindDuplicatesButton")!);
         True(Rows().Count == 6 && _window.FindControl<TextBlock>("StatusText")!.Text!.Contains("No duplicate", StringComparison.OrdinalIgnoreCase),
@@ -175,6 +183,40 @@ internal static class Program
         Equal("q", Rows()[0].Cells[0], "typing replaces a selected cell and commits");
         await Key("z", control: true);
         Equal("Delta", Rows()[0].Cells[0], "Undo restores typed replacement");
+
+        await ClickCell(1, 1);
+        await ClickCell(2, 2, shift: true);
+        await Key("a");
+        await Key("b");
+        await Key("Return");
+        True(Rows()[1].Cells.Skip(1).All(v => v == "ab") && Rows()[2].Cells.Skip(1).All(v => v == "ab") &&
+             Rows()[1].Cells[0] == "Alpha" && Rows()[3].Cells[1] == "20",
+            "typing a new value fills every selected cell without appending old text or changing neighbors");
+        await Key("z", control: true);
+        True(Rows()[1].Cells[1] == "10" && Rows()[1].Cells[2] == "blue" &&
+             Rows()[2].Cells[1] == "30" && Rows()[2].Cells[2] == "red",
+            "one Undo restores the different original values of all typed-over cells");
+        await Key("z", control: true, shift: true);
+        True(Rows()[1].Cells.Skip(1).All(v => v == "ab") && Rows()[2].Cells.Skip(1).All(v => v == "ab"),
+            "Redo fills the same selected cells as one operation");
+        await Key("z", control: true);
+        await ClickCell(1, 1);
+        await ClickCell(2, 2, shift: true);
+        await Key("q");
+        await Key("Escape");
+        True(Rows()[1].Cells[1] == "10" && Rows()[1].Cells[2] == "blue" &&
+             Rows()[2].Cells[1] == "30" && Rows()[2].Cells[2] == "red",
+            "Escape cancels typing over a range without changing any selected cell");
+        await ClickCell(2, 1);
+        await Key("space", control: true);
+        await Key("9");
+        await Key("8");
+        await Key("Return");
+        True(Rows().All(r => r.Cells[1] == "98") && Rows()[0].Cells[0] == "Delta",
+            "typing after selecting a whole column replaces all visible cells in that column");
+        await Key("z", control: true);
+        Equal(Lines("40", "10", "30", "20", "50", "60"), Lines(Rows().Select(r => r.Cells[1]).ToArray()),
+            "one Undo restores a typed-over whole column");
 
         await ClickCell(1, 1);
         await ClickCell(2, 2, shift: true);

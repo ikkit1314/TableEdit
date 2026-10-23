@@ -9,10 +9,14 @@ public partial class MainWindow
 
     private bool DuplicateFilterActive => _duplicateColumn >= 0 && _duplicateValues != null;
 
+    private bool IsDuplicateCell(Row row, int column) => DuplicateFilterActive && column == _duplicateColumn &&
+        column < row.Cells.Count && _duplicateValues!.Contains(row.Cells[column]);
+
     private void ResetDuplicateFilter()
     {
         _duplicateColumn = -1;
         _duplicateValues = null;
+        _highlight.Refresh();
     }
 
     /// <summary>
@@ -46,7 +50,7 @@ public partial class MainWindow
         ApplyFilter();
         Table.CurrentColumn = Table.Columns[column];
         StatusText.Text = $"{name}: {values.Count:N0} repeated value(s), {matchingRows:N0} rows " +
-            $"({matchingRows - values.Count:N0} extra occurrences) · exact match · empty cells ignored · Show All to return.";
+            $"({matchingRows - values.Count:N0} extra occurrences) · duplicates highlighted in yellow · exact match · empty cells ignored · Show All to return.";
     }
 
     private List<Row> FilterDuplicateRows(List<Row> rows)

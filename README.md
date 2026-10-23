@@ -28,12 +28,12 @@ python packaging/package_macos.py
 ```
 输出 `dist/TableEdit-macos-arm64.zip`（Apple 芯片）和 `dist/TableEdit-macos-x64.zip`（Intel）。
 
-## 在 Mac 上首次运行
-解压后双击 `first-run.command`（或在终端执行）：
-```
-xattr -cr TableEdit.app && codesign --force --deep --sign - TableEdit.app
-```
-在 Windows 上交叉编译出的程序没有签名，Apple 芯片的 Mac 会拒绝运行未签名的程序，所以必须先做一次本地 ad-hoc 签名。
+## 在 Mac 上安装（1.3.2 起）
+从 Releases 下载对应芯片的 **DMG**，打开后把 **TableEdit.app** 拖到 **Applications**，推出磁盘映像，再从 Applications 启动。应用在 macOS 构建机上提前签名，不再要求下载后运行终端补签名。
+
+DMG 本身不能代替 Apple Developer 签名和公证。若该 Release 标注 **Ad-hoc signed; not Apple-notarized**，首次启动可能仍需到 **系统设置 › 隐私与安全性 › 仍要打开** 批准 TableEdit（macOS 12 在“系统偏好设置 › 安全性与隐私”）。后续同一份已安装应用通常无需重复批准，新下载的更新可能需要再次批准。
+
+完整签名、公证配置和本地打包步骤见 [macOS 发布说明](packaging/MACOS_RELEASE.md)。
 
 ## 在 Mac 上直接编译
 安装 .NET 8 SDK 后运行 `packaging/build-on-mac.sh`。
@@ -61,3 +61,10 @@ See [tests/README.md](tests/README.md) for native mouse/keyboard regression chec
 - 排序后仍追踪原来的记录；筛选隐藏的行不参与操作。切换文件或重建列后会要求重新选择，避免沿用旧范围。
 - **Data › Selected Cells** 可对选区去空白、转换大小写或标题大小写；右键菜单也提供去空白和大小写转换。
 - 批量替换与转换可以一次撤销/重做；清空或修改单元格后，当前搜索及重复筛选会刷新。
+
+## 输入覆盖与重复值高亮（1.3.2）
+
+- 选中一个或多个单元格后直接输入新内容，按 Enter 提交时会覆盖全部选中的格子；不会附加到旧内容后面。Esc 取消输入，一次撤销恢复所有格子各自原来的值。
+- 选中整列后直接输入也会覆盖该列全部可见单元格。F2、Enter 或双击进入的普通编辑仍只处理当前格子。
+- 列重复结果会把重复格子标黄；选中的重复格子使用紫色，未选列不变色。Show All 同时清除重复筛选和高亮。
+- 修复清空搜索框后的延迟刷新清除刚建立的单元格选区的问题。

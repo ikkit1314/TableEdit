@@ -83,6 +83,9 @@ public partial class MainWindow : Window
         {
             ClearFilterButton.IsVisible = !string.IsNullOrEmpty(FilterBox.Text);
             _filterTimer.Stop();
+            // TextChanged can arrive after ClearFilter has already applied the empty query.
+            // Do not schedule a second refresh that would erase the user's new cell selection.
+            if (_suppressFilter || !CurrentQueryChanged()) return;
             _filterTimer.Start();
         };
         FilterBox.KeyDown += (_, e) =>
@@ -244,6 +247,8 @@ public partial class MainWindow : Window
 
         Table.BeginningEdit += (_, e) =>
         {
+            if (_typingTargets == null && _cells.HasSelection && e.EditingEventArgs is TextInputEventArgs)
+                _typingTargets = CaptureTypingTargets();
             if (e.Row.DataContext is Row r)
             {
                 _editRow = r;
@@ -257,7 +262,8 @@ public partial class MainWindow : Window
             if (e.EditingElement is TextBox box)
             {
                 box.Focus();
-                box.CaretIndex = box.Text?.Length ?? 0;
+                if (_typingTargets != null) box.SelectAll();
+                else box.CaretIndex = box.Text?.Length ?? 0;
             }
         };
 
@@ -266,6 +272,8 @@ public partial class MainWindow : Window
             var r = _editRow;
             int c = _editCol;
             _editRow = null;
+            var targets = _typingTargets;
+            _typingTargets = null;
             if (r == null || c < 0 || c >= r.Cells.Count) return;
             if (e.EditAction == DataGridEditAction.Cancel)
             {
@@ -277,14 +285,15 @@ public partial class MainWindow : Window
             r.Cells[c] ??= "";
             var oldValue = _editOld;
             var newValue = r.Cells[c];
-            if (oldValue == newValue) return;
-            void Apply(string value)
+            if (targets != null)
             {
-                r.Cells[c] = value;
-                if (DuplicateFilterActive) ApplyFilter();
+                var changes = targets.Where(target => target.Old != newValue)
+                    .Select(target => (target.Row, target.Col, target.Old, New: newValue)).ToList();
+                ApplyCellChanges(targets.Count == 1 ? "Type Cell" : "Type Selected Cells", changes, deferFilter: true);
+                return;
             }
-            Push(new UndoEntry("Edit Cell", () => Apply(oldValue), () => Apply(newValue)));
-            if (DuplicateFilterActive) Dispatcher.UIThread.Post(ApplyFilter);
+            if (oldValue == newValue) return;
+            ApplyCellChanges("Edit Cell", new() { (r, c, oldValue, newValue) }, deferFilter: true);
         };
 
         Table.Sorting += (_, e) =>
