@@ -29,7 +29,7 @@ jobs:
           import os
           from pathlib import Path
           log = Path(os.environ['RUNNER_TEMP'], 'macos-packaging.log').read_text()
-          message = '\n'.join(log.splitlines()[-60:])
+          message = log[-3500:]
           message = message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
           print(f'::error title=macOS packaging failed::{message}')
           PY
