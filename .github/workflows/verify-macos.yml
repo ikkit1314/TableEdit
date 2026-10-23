@@ -1,0 +1,36 @@
+name: Verify macOS packaging
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packaging/**'
+      - '.github/workflows/verify-macos.yml'
+      - '.github/workflows/release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.426'
+      - name: Build and verify DMGs
+        run: |
+          if ! python3 packaging/package_macos.py --dmg 2>&1 | tee "$RUNNER_TEMP/macos-packaging.log"; then
+            python3 - <<'PY'
+          import os
+          from pathlib import Path
+          log = Path(os.environ['RUNNER_TEMP'], 'macos-packaging.log').read_text()
+          message = '\n'.join(log.splitlines()[-60:])
+          message = message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          print(f'::error title=macOS packaging failed::{message}')
+          PY
+            exit 1
+          fi
