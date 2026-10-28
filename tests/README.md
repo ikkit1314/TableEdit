@@ -8,6 +8,8 @@ The 1.3.1 Release build passed all 66 checks on the prepared Linux X11 display. 
 
 The range-typing and duplicate-highlighting implementation passed 75 checks. New checks verify typing over an entire rectangular selection or column, one-step undo/redo and cancellation, actual duplicate-cell background colors, selected duplicate appearance, and clearing duplicate highlights. They also catch delayed search refreshes erasing a newly clicked selection.
 
+The multiple-document implementation passed 89 checks in total. The runner starts the actual app with three CSV arguments, then verifies simultaneous loads, reuse of only an empty window, pending/open duplicate requests, document-specific edits and undo, preservation of unsaved documents, the Window menu, and keeping documents usable after the original app window closes. The macOS packaging smoke check separately counts real document windows for both startup arguments and file-open activation in the already-running app.
+
 Requirements: .NET 8, Linux with an X11 display, `libX11` and `libXtst`, and fonts usable by Avalonia. Run on an otherwise unused virtual display because these checks move its pointer and change focus.
 
 ```sh
@@ -18,6 +20,8 @@ export DISPLAY=:99
 dotnet run --project tests/InteractionChecks/InteractionChecks.csproj
 # To run just the scoped-operation checks:
 dotnet run --project tests/InteractionChecks/InteractionChecks.csproj -- --scope-only
+# To run just startup and multi-window checks:
+dotnet run --project tests/InteractionChecks/InteractionChecks.csproj -- --multiwindow-only
 ```
 
 A successful run prints each passed check and exits zero. Failures return nonzero. These checks validate the native Linux input path; they do not replace checking macOS keyboard conventions on a Mac.

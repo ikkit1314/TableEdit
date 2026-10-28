@@ -7,7 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>TableEdit</AssemblyName>
     <RootNamespace>TableEdit</RootNamespace>
-    <Version>1.3.3</Version>
+    <Version>1.3.4</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
     <!-- Grid columns use reflection bindings, so trimming stays off. -->

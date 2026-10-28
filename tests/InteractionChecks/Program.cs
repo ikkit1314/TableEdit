@@ -32,6 +32,9 @@ internal static class Program
             Console.Error.WriteLine("Run these native-input checks on Linux with an X11 DISPLAY (see tests/README.md).");
             return 2;
         }
+        _directory = Path.Combine(Path.GetTempPath(), "tableedit-interaction-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(_directory);
+        var startupPaths = CreateDocuments("startup", 3);
         AppBuilder.Configure<App>().UsePlatformDetect().AfterSetup(_ =>
             Dispatcher.UIThread.Post(async () =>
             {
@@ -43,14 +46,14 @@ internal static class Program
                     _window.Activate();
                     _grid = _window.FindControl<DataGrid>("Table")!;
                     _input = new NativeInput();
-                    _directory = Path.Combine(Path.GetTempPath(), "tableedit-interaction-" + Guid.NewGuid().ToString("N"));
-                    Directory.CreateDirectory(_directory);
                     await Pause();
+                    await CheckStartupDocuments(startupPaths);
                     if (args.Contains("--scope-only"))
                     {
                         await CheckScopedFindReplace();
                         await CheckSelectedTransforms();
                     }
+                    else if (args.Contains("--multiwindow-only")) await CheckMultipleDocuments();
                     else await RunChecks();
                     Console.WriteLine($"PASS: {_passed} interaction checks.");
                 }
@@ -64,10 +67,11 @@ internal static class Program
                     _input?.Dispose();
                     if (!string.IsNullOrEmpty(_directory)) Directory.Delete(_directory, recursive: true);
                     // This process owns the test document; skip the unsaved-change prompt.
-                    typeof(MainWindow).GetField("_forceClose", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(_window, true);
+                    foreach (var document in Documents())
+                        typeof(MainWindow).GetField("_forceClose", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(document, true);
                     desktop.Shutdown(_result);
                 }
-            })).StartWithClassicDesktopLifetime(Array.Empty<string>());
+            })).StartWithClassicDesktopLifetime(startupPaths);
         return _result;
     }
 
@@ -274,6 +278,118 @@ internal static class Program
         True(Rows().Count == 199 && Rows()[1].Cells[0] == "Item2", "Ctrl+Backspace deletes a row once despite the menu shortcut");
         await Key("z", control: true);
         True(Rows().Count == 200, "Undo restores the Ctrl+Backspace deletion");
+        await CheckMultipleDocuments();
+    }
+
+    private static MainWindow[] Documents() => ((IClassicDesktopStyleApplicationLifetime)Application.Current!.ApplicationLifetime!)
+        .Windows.OfType<MainWindow>().ToArray();
+
+    private static List<Row> Rows(MainWindow window) => window.FindControl<DataGrid>("Table")!.ItemsSource!.Cast<Row>().ToList();
+
+    private static string[] CreateDocuments(string prefix, int count) => Enumerable.Range(0, count).Select(index =>
+    {
+        var name = $"{prefix} document {index}";
+        var path = Path.Combine(_directory, name + ".csv");
+        File.WriteAllText(path, $"Name,Value,Group\n{name},{101 + index},group\n");
+        return path;
+    }).ToArray();
+
+    private static MainWindow Document(string path) => Documents().Single(w => w.Title == Path.GetFileName(path));
+
+    private static bool DocumentsLoaded(IEnumerable<string> paths) => paths.All(path =>
+        Documents().Any(w => w.Title == Path.GetFileName(path) &&
+            Rows(w).FirstOrDefault()?.Cells[0] == Path.GetFileNameWithoutExtension(path)));
+
+    private static NativeMenu WindowMenu(MainWindow window) => NativeMenu.GetMenu(window)!.Items.OfType<NativeMenuItem>()
+        .Single(item => item.Header == "Window").Menu!;
+
+    private static async Task CheckStartupDocuments(string[] paths)
+    {
+        await WaitUntil(() => DocumentsLoaded(paths));
+        True(Documents().Length == paths.Length, "startup opens every command-line CSV in its own window");
+        True(paths.All(path => Rows(Document(path)).Count == 1 && Rows(Document(path))[0].Cells[0] == Path.GetFileNameWithoutExtension(path)),
+            "simultaneous startup loads preserve each CSV's own content");
+        True(Documents().All(w => WindowMenu(w).Items.OfType<NativeMenuItem>().Select(item => item.Header)
+            .OrderBy(h => h).SequenceEqual(paths.Select(Path.GetFileName).OrderBy(h => h))),
+            "every Window menu lists all the open CSV documents");
+        foreach (var document in Documents().Where(w => w != _window)) document.Close();
+        await Pause();
+        True(Documents().Length == 1 && WindowMenu(_window).Items.Count == 1,
+            "closing a document removes its Window menu entry without closing the remaining document");
+        _window.Activate();
+        await Pause();
+    }
+
+    private static async Task CheckMultipleDocuments()
+    {
+        var original = _window;
+        string originalValue = Rows(original)[0].Cells[0];
+        var blank = new MainWindow();
+        blank.Show();
+        var paths = CreateDocuments("batch", 2);
+        int before = Documents().Length;
+        MainWindow.OpenInBestWindow(paths[0]);
+        MainWindow.OpenInBestWindow(paths[1]);
+        MainWindow.OpenInBestWindow(Path.Combine(_directory, ".", Path.GetFileName(paths[0])));
+        True(Documents().Length == before + 1,
+            "batch opening reserves the empty window immediately and coalesces duplicate pending paths");
+        await WaitUntil(() => DocumentsLoaded(paths));
+        var first = Document(paths[0]);
+        var second = Document(paths[1]);
+        True(first == blank && first != second, "only the first batch file reuses an empty window");
+        True(Rows(first)[0].Cells[0] == "batch document 0" && Rows(second)[0].Cells[0] == "batch document 1" &&
+             Rows(original)[0].Cells[0] == originalValue, "opening multiple CSVs preserves all three documents independently");
+        second.WindowState = WindowState.Minimized;
+        var entry = WindowMenu(first).Items.OfType<NativeMenuItem>().Single(item => item.Header == second.Title);
+        entry.Command!.Execute(null);
+        await Pause();
+        True(second.WindowState == WindowState.Normal && Documents().Length == before + 1,
+            "the Window menu restores the selected document without creating another window");
+
+        _window = first;
+        _grid = first.FindControl<DataGrid>("Table")!;
+        first.Activate();
+        await Pause();
+        await ClickCell(0, 1);
+        await Key("9");
+        await Key("Return");
+        True(Rows(first)[0].Cells[1] == "9" && Rows(second)[0].Cells[1] == "102",
+            "native editing changes only the active CSV window");
+        MainWindow.OpenInBestWindow(paths[0]);
+        await Pause();
+        True(Documents().Length == before + 1 && Rows(first)[0].Cells[1] == "9",
+            "opening an already-open CSV focuses it and preserves unsaved edits");
+        await Key("z", control: true);
+        True(Rows(first)[0].Cells[1] == "101" && Rows(second)[0].Cells[1] == "102",
+            "Undo history belongs to its document window");
+
+        var unsaved = new MainWindow();
+        unsaved.Show();
+        _window = unsaved;
+        _grid = unsaved.FindControl<DataGrid>("Table")!;
+        unsaved.Activate();
+        await Pause();
+        await ClickCell(0, 0);
+        await Key("q");
+        await Key("Return");
+        var extraPath = CreateDocuments("extra", 1)[0];
+        int withUnsaved = Documents().Length;
+        MainWindow.OpenInBestWindow(extraPath);
+        await WaitUntil(() => DocumentsLoaded(new[] { extraPath }));
+        True(Documents().Length == withUnsaved + 1 && Rows(unsaved)[0].Cells[0] == "q",
+            "opening another CSV never replaces an unsaved new document");
+
+        typeof(MainWindow).GetField("_forceClose", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(original, true);
+        original.Close();
+        await Pause();
+        True(Documents().Contains(first) && Documents().Contains(second) && Rows(second)[0].Cells[0] == "batch document 1",
+            "closing the original application window leaves the other CSV windows usable");
+        True(Documents().All(w => WindowMenu(w).Items.Count == Documents().Length),
+            "document menus stay synchronized after opening, editing, and closing windows");
+        _window = second;
+        _grid = second.FindControl<DataGrid>("Table")!;
+        second.Activate();
+        await Pause();
     }
 
     private static async Task CheckScopedFindReplace()

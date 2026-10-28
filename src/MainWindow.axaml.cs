@@ -36,6 +36,9 @@ public partial class MainWindow : Window
     private ObservableCollection<Row> _visible = new();
 
     private string? _path;
+    private string? _loadingPath;
+    private int _loadGeneration;
+    private bool _isClosed;
     private char _delimiter = ',';
     private Encoding _encoding = new UTF8Encoding(false);
     private string _newLine = "\n";
@@ -63,12 +66,18 @@ public partial class MainWindow : Window
     private NativeMenuItem _undoItem = null!;
     private NativeMenuItem _redoItem = null!;
     private NativeMenuItem _headerToggle = null!;
+    private readonly NativeMenu _windowMenu = new();
 
     public MainWindow()
     {
         InitializeComponent();
         OpenWindows.Add(this);
-        Closed += (_, _) => OpenWindows.Remove(this);
+        Closed += (_, _) =>
+        {
+            _isClosed = true;
+            OpenWindows.Remove(this);
+            RefreshWindowMenus();
+        };
         Closing += OnClosing;
 
         BuildMenu();
@@ -170,7 +179,7 @@ public partial class MainWindow : Window
         var menu = new NativeMenu
         {
             Sub("File",
-                Item("New", () => new MainWindow().Show(), Key.N),
+                Item("New Window", () => new MainWindow().Show(), Key.N),
                 Item("Open…", () => _ = OpenAsync(), Key.O),
                 Sep(),
                 Item("Save", () => _ = SaveAsync(false), Key.S),
@@ -231,9 +240,36 @@ public partial class MainWindow : Window
                 Item("UPPERCASE Current Column", () => ChangeCase("Uppercase", s => s.ToUpper(CultureInfo.CurrentCulture))),
                 Item("lowercase Current Column", () => ChangeCase("Lowercase", s => s.ToLower(CultureInfo.CurrentCulture))),
                 Item("Title Case Current Column", () => ChangeCase("Title Case", s => CultureInfo.CurrentCulture.TextInfo.ToTitleCase(s.ToLower(CultureInfo.CurrentCulture))))),
+            new NativeMenuItem("Window") { Menu = _windowMenu },
         };
         NativeMenu.SetMenu(this, menu);
         UpdateUndoMenu();
+        RefreshWindowMenus();
+    }
+
+    private static void RefreshWindowMenus()
+    {
+        foreach (var owner in OpenWindows)
+        {
+            owner._windowMenu.Items.Clear();
+            foreach (var document in OpenWindows)
+            {
+                var item = new NativeMenuItem(document.Title ?? "Untitled")
+                {
+                    ToggleType = NativeMenuItemToggleType.CheckBox,
+                    IsChecked = owner == document,
+                    Command = new RelayCommand(() => ActivateDocument(document)),
+                };
+                owner._windowMenu.Items.Add(item);
+            }
+        }
+    }
+
+    private static void ActivateDocument(MainWindow window)
+    {
+        if (window.WindowState == WindowState.Minimized) window.WindowState = WindowState.Normal;
+        window.Activate();
+        RefreshWindowMenus();
     }
 
     // ───────────────────────────── grid wiring ─────────────────────────────
@@ -394,14 +430,16 @@ public partial class MainWindow : Window
 
     // ───────────────────────────── documents ─────────────────────────────
 
-    private bool IsPristine => _path == null && !_dirty && _rows.All(r => r.Cells.All(string.IsNullOrEmpty));
+    private bool IsPristine => _path == null && _loadingPath == null && !_dirty && _rows.All(r => r.Cells.All(string.IsNullOrEmpty));
 
     public static void OpenInBestWindow(string path)
     {
-        var existing = OpenWindows.FirstOrDefault(w => string.Equals(w._path, path, StringComparison.Ordinal));
+        path = Path.GetFullPath(path);
+        var existing = OpenWindows.FirstOrDefault(w => string.Equals(w._path, path, StringComparison.Ordinal) ||
+            string.Equals(w._loadingPath, path, StringComparison.Ordinal));
         if (existing != null)
         {
-            existing.Activate();
+            ActivateDocument(existing);
             return;
         }
         var target = OpenWindows.FirstOrDefault(w => w.IsPristine);
@@ -410,7 +448,7 @@ public partial class MainWindow : Window
             target = new MainWindow();
             target.Show();
         }
-        target.Activate();
+        ActivateDocument(target);
         _ = target.LoadFileAsync(path);
     }
 
@@ -428,6 +466,26 @@ public partial class MainWindow : Window
 
     public async Task LoadFileAsync(string path, char? delimiter = null)
     {
+        // Reserve the window before the first await so a batch cannot reuse it for another file.
+        int generation = ++_loadGeneration;
+        _loadingPath = Path.GetFullPath(path);
+        UpdateTitle();
+        try
+        {
+            await LoadFileCoreAsync(_loadingPath, delimiter, generation);
+        }
+        finally
+        {
+            if (generation == _loadGeneration)
+            {
+                _loadingPath = null;
+                if (!_isClosed) UpdateTitle();
+            }
+        }
+    }
+
+    private async Task LoadFileCoreAsync(string path, char? delimiter, int generation)
+    {
         StatusText.Text = $"Loading {Path.GetFileName(path)}…";
         LoadedFile loaded;
         try
@@ -436,10 +494,13 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            if (_isClosed || generation != _loadGeneration) return;
             StatusText.Text = "";
             await Dialogs.Info(this, "Could not open file", $"{path}\n\n{ex.Message}");
             return;
         }
+
+        if (_isClosed || generation != _loadGeneration) return;
 
         int width = loaded.Records.Count == 0 ? 1 : loaded.Records.Max(r => r.Length);
         var records = loaded.Records;
@@ -628,8 +689,10 @@ public partial class MainWindow : Window
 
     private void UpdateTitle()
     {
-        var name = _path != null ? Path.GetFileName(_path) : "Untitled";
+        var path = _loadingPath ?? _path;
+        var name = path != null ? Path.GetFileName(path) : "Untitled";
         Title = _dirty ? $"{name} — Edited" : name;
+        RefreshWindowMenus();
     }
 
     private void UpdateStatus()
