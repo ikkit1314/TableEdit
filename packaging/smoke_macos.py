@@ -79,8 +79,9 @@ with tempfile.TemporaryDirectory(prefix='tableedit-mac-smoke-') as directory, \
         wait_for_windows(5, 'macOS file activation opens two more CSVs in the running app')
         subprocess.run(['open', '-a', str(app), str(paths[0])], check=True, timeout=15)
         time.sleep(2)
-        if process.poll() is not None or window_count(process.pid) != 5:
-            raise RuntimeError('Reopening an existing CSV changed the document window count or terminated the app.')
+        reopened_count = window_count(process.pid) if process.poll() is None else -1
+        if reopened_count != 5:
+            raise RuntimeError(f'Reopening an existing CSV: expected 5 windows, observed {reopened_count}; exit={process.poll()}.')
         print(f'PASS: native macOS {arch} app keeps five independent document windows; reopening reuses its window.', flush=True)
     except Exception as error:
         log.seek(0)

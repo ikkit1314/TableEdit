@@ -434,7 +434,7 @@ public partial class MainWindow : Window
 
     public static void OpenInBestWindow(string path)
     {
-        path = Path.GetFullPath(path);
+        path = DocumentPath.Normalize(path);
         var existing = OpenWindows.FirstOrDefault(w => string.Equals(w._path, path, StringComparison.Ordinal) ||
             string.Equals(w._loadingPath, path, StringComparison.Ordinal));
         if (existing != null)
@@ -468,7 +468,7 @@ public partial class MainWindow : Window
     {
         // Reserve the window before the first await so a batch cannot reuse it for another file.
         int generation = ++_loadGeneration;
-        _loadingPath = Path.GetFullPath(path);
+        _loadingPath = DocumentPath.Normalize(path);
         UpdateTitle();
         try
         {
@@ -618,7 +618,7 @@ public partial class MainWindow : Window
             return false;
         }
 
-        _path = path;
+        _path = DocumentPath.Normalize(path);
         _dirty = false;
         UpdateTitle();
         UpdateStatus();

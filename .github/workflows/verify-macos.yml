@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
     paths:
+      - 'src/**'
       - 'packaging/**'
       - '.github/workflows/verify-macos.yml'
       - '.github/workflows/release.yml'
