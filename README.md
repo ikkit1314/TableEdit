@@ -87,3 +87,11 @@ See [tests/README.md](tests/README.md) for native mouse/keyboard regression chec
   - 勾选 Billing same as shipping 时账单地址和收货地址相同，BILLING_SAME_AS_SHIPPING 写 TRUE；ONE_CHECKOUT_PER_PROFILE 写 FALSE。
   - 卡号使用公开的测试卡号（4242…、5555… 等），不是真实卡，使用前请换成自己的卡。
   - 可以只填选中行或搜索结果中的行，也可以在末尾新增 N 个资料；表格里还没有这些列时可以一键添加标准列。整个操作一次撤销。
+
+## 检查更新（1.4.0）
+
+- **File › Check for Updates…**：读取 GitHub 上最新的 Release，和本机版本比较。有新版本时显示更新说明。
+- 在 Mac 上点 **Download and Install**：自动下载对应芯片（Apple 芯片 / Intel）的 DMG，用 Release 里的 SHA256SUMS.txt 校验，把新版复制到 TableEdit 所在的文件夹旁边；点 **Install and Relaunch** 后 TableEdit 退出、替换成新版并重新打开。有未保存的文档时不会退出，会先提示保存。
+- 安装好的 App 每天启动时会悄悄检查一次，只有发现新版本才弹出提示；可以在更新窗口关闭自动检查，或跳过某个版本。设置保存在 `~/Library/Application Support/TableEdit/update.json`。
+- 如果 App 不在可写的文件夹里（比如直接从 DMG 运行），按钮会变成 **Download**，用浏览器下载 DMG 手动安装。Windows / Linux 只打开 Release 页面。
+- 1.3.4 及更早的版本没有这个功能，需要手动安装一次 1.4.0，之后就可以在 App 内更新。

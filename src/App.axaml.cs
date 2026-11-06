@@ -39,6 +39,10 @@ public partial class App : Application
             }
         }
 
+        // A quiet once-a-day check in the installed app; the menu's Check for Updates… always works.
+        if (Updater.ShouldAutoCheck())
+            DispatcherTimer.RunOnce(() => _ = UpdateWindow.CheckQuietlyAsync(MainWindow.ActiveDocument), TimeSpan.FromSeconds(3));
+
         base.OnFrameworkInitializationCompleted();
     }
 }

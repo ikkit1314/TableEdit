@@ -187,6 +187,8 @@ public partial class MainWindow : Window
                 Sub("Export Visible Rows", export),
                 Sub("Reopen with Delimiter", reopen),
                 Sep(),
+                Item("Check for Updates…", () => _ = UpdateWindow.CheckInteractiveAsync(this)),
+                Sep(),
                 Item("Close Window", Close, Key.W)),
             Sub("Edit",
                 _undoItem,
@@ -653,6 +655,24 @@ public partial class MainWindow : Window
             await Dialogs.Info(this, "Export failed", ex.Message);
         }
     }
+
+    /// <summary>Names of open documents with unsaved edits, so an update never discards work.</summary>
+    internal static List<string> UnsavedDocumentNames() => OpenWindows.Where(w => w._dirty)
+        .Select(w => w._path != null ? Path.GetFileName(w._path) : "Untitled").ToList();
+
+    /// <summary>Closes every window without prompting; only called once nothing is unsaved.</summary>
+    internal static void CloseAllForUpdate()
+    {
+        foreach (var window in OpenWindows.ToList())
+        {
+            window._forceClose = true;
+            window._findWindow?.Close();
+            window.Close();
+        }
+    }
+
+    /// <summary>The window an update notice should sit on: the active document, or any open one.</summary>
+    internal static Window? ActiveDocument() => OpenWindows.FirstOrDefault(w => w.IsActive) ?? OpenWindows.FirstOrDefault();
 
     private async void OnClosing(object? sender, WindowClosingEventArgs e)
     {

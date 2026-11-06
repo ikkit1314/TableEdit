@@ -59,7 +59,9 @@ with tempfile.TemporaryDirectory(prefix='tableedit-mac-smoke-') as directory, \
     paths = [Path(directory) / f'document {index}.csv' for index in range(5)]
     for index, path in enumerate(paths):
         path.write_text(f'Name,Value,Group\nDocument {index},{index},test\n')
-    process = subprocess.Popen([str(host), *(str(path) for path in paths[:3])], stdout=log, stderr=subprocess.STDOUT)
+    process = subprocess.Popen([str(host), *(str(path) for path in paths[:3])], stdout=log, stderr=subprocess.STDOUT,
+                               # An update prompt would add a window and skew the document-window count.
+                               env={**os.environ, 'TABLEEDIT_NO_UPDATE_CHECK': '1'})
     try:
         def wait_for_windows(expected, description):
             deadline = time.monotonic() + 15
