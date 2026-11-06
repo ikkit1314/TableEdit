@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+      - 'V*'
   # Publishing a release on github.com (Releases > Draft a new release > new tag) also builds it;
   # the DMGs are then uploaded into that release.
   release:
@@ -60,7 +61,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import os, plistlib, xml.etree.ElementTree as ET
-          version = os.environ['RELEASE_TAG'].removeprefix('v')
+          version = os.environ['RELEASE_TAG'].lstrip('vV')
           assert ET.parse('src/TableEdit.csproj').findtext('.//Version') == version
           with open('packaging/Info.plist', 'rb') as stream:
               plist = plistlib.load(stream)
@@ -82,7 +83,7 @@ jobs:
           python3 - <<'PY'
           import hashlib, os
           from pathlib import Path
-          version = os.environ['RELEASE_TAG'].removeprefix('v')
+          version = os.environ['RELEASE_TAG'].lstrip('vV')
           checksums = []
           for arch in ('arm64', 'x64'):
               target = Path(f'dist/TableEdit-{version}-macos-{arch}.dmg')
@@ -98,8 +99,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          version="${RELEASE_TAG#v}"
-          notes="packaging/releases/${RELEASE_TAG}.md"
+          version="${RELEASE_TAG#[vV]}"
+          # A tag typed as V1.5.0 still finds packaging/releases/v1.5.0.md.
+          notes="packaging/releases/v${version}.md"
           release_notes="$RUNNER_TEMP/tableedit-release-notes.md"
           args=(--generate-notes)
           if [ -f "$notes" ]; then
