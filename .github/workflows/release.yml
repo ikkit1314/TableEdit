@@ -4,6 +4,10 @@ on:
   push:
     tags:
       - 'v*'
+  # Publishing a release on github.com (Releases > Draft a new release > new tag) also builds it;
+  # the DMGs are then uploaded into that release.
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       tag:
@@ -15,19 +19,40 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-${{ inputs.tag || github.ref_name }}
+  group: release-${{ inputs.tag || github.event.release.tag_name || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
+  # A release made on github.com creates its tag too, which fires the tag-push trigger as well.
+  # That push run stands down when the release already exists, so each version builds once.
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          skip=false
+          if [ "${{ github.event_name }}" = "push" ] && gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
+            skip=true
+            echo "Release ${{ github.ref_name }} already exists; its release event builds it."
+          fi
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+
   release:
+    needs: check
+    if: needs.check.outputs.skip != 'true'
     runs-on: macos-15
     timeout-minutes: 45
     env:
-      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.event.release.tag_name || github.ref }}
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.426'
@@ -86,8 +111,14 @@ jobs:
           fi
           printf '\n## Build signing status\n\n' >> "$release_notes"
           cat dist/macos-signing-status.txt >> "$release_notes"
-          gh release create "$RELEASE_TAG" \
-            "dist/TableEdit-${version}-macos-arm64.dmg" \
-            "dist/TableEdit-${version}-macos-x64.dmg" \
-            dist/SHA256SUMS.txt \
-            --verify-tag --title "TableEdit $RELEASE_TAG" "${args[@]}"
+          assets=("dist/TableEdit-${version}-macos-arm64.dmg" "dist/TableEdit-${version}-macos-x64.dmg" dist/SHA256SUMS.txt)
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            # Made on github.com: add the DMGs to it, and use the repository's notes when there are some.
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
+            if [ -f "$notes" ]; then
+              gh release edit "$RELEASE_TAG" --title "TableEdit $RELEASE_TAG" --notes-file "$release_notes"
+            fi
+          else
+            gh release create "$RELEASE_TAG" "${assets[@]}" \
+              --verify-tag --title "TableEdit $RELEASE_TAG" "${args[@]}"
+          fi

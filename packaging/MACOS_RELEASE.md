@@ -2,6 +2,13 @@
 
 The version-tag workflow runs on macOS and builds both `osx-arm64` and `osx-x64`. It signs each native library and the application bundle before creating a compressed DMG containing `TableEdit.app`, an Applications link, and installation instructions. Each image is verified, mounted read-only, checked for the expected version and executable permissions, and its embedded app signature is verified before publication.
 
+## Start a release
+
+Bump `<Version>` in `src/TableEdit.csproj` and both version strings in `packaging/Info.plist`, add `packaging/releases/vX.Y.Z.md`, and merge to `main`. Then either:
+
+- **On github.com (no local checkout needed):** Releases › Draft a new release › Choose a tag › type `vX.Y.Z` › Create new tag on publish (target `main`) › Publish release. The workflow builds the DMGs and uploads them into that release in about 15 minutes, replacing its notes with `packaging/releases/vX.Y.Z.md` when that file exists.
+- **From a checkout:** `git tag -a vX.Y.Z -m "TableEdit vX.Y.Z"` then `git push origin vX.Y.Z`. The workflow creates the release.
+
 Managed .NET assemblies are bundled into the main executable. Native libraries remain separate and are individually signed. This avoids placing unsigned managed DLLs in `Contents/MacOS`, where Apple's bundle signing rules treat them as nested code.
 
 ## Install
