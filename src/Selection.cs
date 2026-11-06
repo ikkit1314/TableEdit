@@ -382,11 +382,18 @@ public partial class MainWindow
         // Text copied from a spreadsheet ends with a newline; don't turn it into an extra blank row.
         while (records.Count > 1 && records[^1].All(string.IsNullOrEmpty)) records.RemoveAt(records.Count - 1);
         if (records.Count == 0) return;
-        bool single = records.Count == 1 && records[0].Length == 1;
         int top = emptyTable ? 0 : _cells.Top, left = emptyTable ? 0 : _cells.Left;
-        int height = single && !emptyTable ? _cells.Bottom - top + 1 : records.Count;
-        int width = single && !emptyTable ? _cells.Right - left + 1 : records.Max(r => r.Length);
-        string ValueAt(int r, int c) => single ? records[0][0] : c < records[r].Length ? records[r][c] : "";
+        // A block smaller than the selection repeats to fill it: one copied value fills every selected cell, and
+        // one copied row fills every selected row (spreading right as far as the row is wide).
+        int blockHeight = records.Count, blockWidth = records.Max(r => r.Length);
+        int height = Math.Max(blockHeight, emptyTable ? 0 : _cells.Bottom - top + 1);
+        int width = Math.Max(blockWidth, emptyTable ? 0 : _cells.Right - left + 1);
+        string ValueAt(int r, int c)
+        {
+            var record = records[r % blockHeight];
+            int column = c % blockWidth;
+            return column < record.Length ? record[column] : "";
+        }
 
         if (top + height > _visible.Count || left + width > _headers.Count)
         {

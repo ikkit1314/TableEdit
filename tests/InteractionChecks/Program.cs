@@ -563,6 +563,20 @@ internal static class Program
         Equal("6", Rows().Count.ToString(), "one Undo removes the rows added by the paste");
         Equal("3", _grid.Columns.Count.ToString(), "the same Undo removes the added column");
         Equal("Echo,50,blue", string.Join(',', Rows()[4].Cells), "Undo restores values under the grown paste");
+
+        // One copied row with a taller selection: the row repeats down every selected row.
+        await ClickCell(1, 0);
+        await ClickCell(4, 0, shift: true);
+        PasteText("X\tY\n");
+        await Pause();
+        True(Enumerable.Range(1, 4).All(i => Rows()[i].Cells[0] == "X" && Rows()[i].Cells[1] == "Y"),
+            "one copied row fills every selected row, spreading right as wide as the row");
+        Equal("Delta,40", string.Join(',', Rows()[0].Cells.Take(2)), "rows above the selection are untouched");
+        Equal("Foxtrot,60", string.Join(',', Rows()[5].Cells.Take(2)), "rows below the selection are untouched");
+        Equal("6", Rows().Count.ToString(), "a repeated paste inside the table adds no rows");
+        await Key("z", control: true);
+        await Pause();
+        Equal("Alpha,10", string.Join(',', Rows()[1].Cells.Take(2)), "one Undo restores a repeated paste");
     }
 
     private static async Task CheckProfileFill()
@@ -596,6 +610,24 @@ internal static class Program
         await Pause();
         Equal("2", Rows().Count.ToString(), "one Undo removes filled profiles and added rows");
         Equal("", Rows()[0].Cells[Col("PHONE")], "Undo clears the filled cells");
+
+        True(names.All(n => FillPattern.Suggest(n) != null), "Auto-Fill suggests a pattern for every standard profile column");
+        Equal("%zip%", FillPattern.Suggest("Postal Code") ?? "<null>", "Auto-Fill matches common header spellings");
+        var picked = new[] { "EMAIL", "PHONE", "SHIPPING_FIRST_NAME", "SHIPPING_LAST_NAME", "SHIPPING_CITY", "SHIPPING_STATE", "SHIPPING_ZIP", "CARD_HOLDER_NAME", "CARD_CVV" };
+        _window.ApplyFill(new FillRequest(
+            picked.Select(n => new ColumnFill(Col(n), FillPattern.TryParse(FillPattern.Suggest(n)!, out _)!)).ToList(),
+            "", FillScope.EmptyCells, AddRows: 1));
+        await Pause();
+        rows = Rows();
+        Equal("3", rows.Count.ToString(), "multi-column Auto-Fill adds the requested rows");
+        Equal("00-stale.tonics@icloud.com", rows[0].Cells[Col("EMAIL")], "Only empty cells keeps existing values in every column");
+        True(rows.All(r => picked.All(n => r.Cells[Col(n)].Length > 0)), "every ticked column is filled in every row");
+        True(rows.All(r => r.Cells[Col("CARD_HOLDER_NAME")] == r.Cells[Col("SHIPPING_FIRST_NAME")] + " " + r.Cells[Col("SHIPPING_LAST_NAME")]),
+            "columns filled together describe the same person in each row");
+        True(rows.All(r => r.Cells[Col("PROFILE_NAME")] == ""), "unticked columns are left alone");
+        await Key("z", control: true);
+        await Pause();
+        Equal("2", Rows().Count.ToString(), "one Undo reverts a multi-column Auto-Fill");
     }
 
     private static async Task ContextAction(string label, Control cell)

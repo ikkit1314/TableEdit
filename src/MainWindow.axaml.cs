@@ -1177,25 +1177,33 @@ public partial class MainWindow : Window
     {
         Table.CommitEdit();
         var names = _headers.Select((_, i) => ColumnName(i)).ToList();
-        var request = await new AutoFillWindow(names, CurrentCol, SelectedRows().Count > 1).ShowDialog<FillRequest?>(this);
+        // Tick the selected columns, or the current one.
+        var ticked = _cells.HasSelection
+            ? Enumerable.Range(_cells.Left, _cells.Right - _cells.Left + 1).ToList()
+            : CurrentCol >= 0 ? new List<int> { CurrentCol } : new List<int>();
+        var request = await new AutoFillWindow(names, ticked, SelectedRows().Count > 1).ShowDialog<FillRequest?>(this);
         if (request != null) ApplyFill(request);
     }
 
-    /// <summary>Fills (and optionally creates) a column from a pattern in one undoable step.</summary>
+    /// <summary>
+    /// Fills (and optionally creates) one or more columns from patterns in one undoable step. Every column filled
+    /// in a row shares one random person, so names, emails, addresses and cards in that row belong together.
+    /// </summary>
     public void ApplyFill(FillRequest request)
     {
         var selected = SelectedRows().ToHashSet();
         var visible = _visible.ToHashSet();
-        int filled = 0, added = 0;
+        int filled = 0, added = 0, rowsFilled = 0;
 
         Structural("Auto-Fill", () =>
         {
-            int col = request.Column;
-            if (col < 0)
+            var columns = request.Columns.Select(c => (c.Column, c.Pattern)).ToList();
+            bool addColumn = columns.Any(c => c.Column < 0);
+            if (addColumn)
             {
                 _headers.Add(request.NewColumnName);
                 foreach (var r in _rows) r.EnsureWidth(_headers.Count);
-                col = _headers.Count - 1;
+                columns = columns.Select(c => (c.Column < 0 ? _headers.Count - 1 : c.Column, c.Pattern)).ToList();
             }
 
             var newRows = new HashSet<Row>();
@@ -1216,22 +1224,32 @@ public partial class MainWindow : Window
             for (int i = 0; i < _rows.Count; i++)
             {
                 var row = _rows[i];
-                row.EnsureWidth(col + 1);
-                bool target = newRows.Contains(row) || request.Scope switch
+                row.EnsureWidth(_headers.Count);
+                bool isNew = newRows.Contains(row);
+                bool rowTarget = isNew || request.Scope switch
                 {
-                    FillScope.EmptyCells => string.IsNullOrWhiteSpace(row.Cells[col]),
                     FillScope.SelectedRows => selected.Contains(row),
                     FillScope.VisibleRows => visible.Contains(row),
                     _ => true,
                 };
-                if (!target) continue;
-                row.Cells[col] = request.Pattern.Generate(rng, i + 1,
-                    name => lookup.TryGetValue(name, out var c) && c < row.Cells.Count ? row.Cells[c] : null);
-                filled++;
+                if (!rowTarget) continue;
+                var sample = ProfileFill.Sample.Random(rng, request.Canada);
+                bool any = false;
+                foreach (var (col, pattern) in columns)
+                {
+                    if (!isNew && request.Scope == FillScope.EmptyCells && !string.IsNullOrWhiteSpace(row.Cells[col])) continue;
+                    row.Cells[col] = pattern.Generate(rng, i + 1,
+                        name => lookup.TryGetValue(name, out var c) && c < row.Cells.Count ? row.Cells[c] : null, sample);
+                    filled++;
+                    any = true;
+                }
+                if (any) rowsFilled++;
             }
-            return filled > 0 || request.Column < 0;
+            return filled > 0 || addColumn;
         });
-        StatusText.Text = $"Auto-filled {filled:N0} cells" + (added > 0 ? $", added {added:N0} rows." : ".");
+        int count = request.Columns.Count;
+        StatusText.Text = $"Auto-filled {filled:N0} cells in {count} column{(count == 1 ? "" : "s")}"
+            + (added > 0 ? $", added {added:N0} rows." : ".");
     }
 
     private async Task ProfileFillAsync()

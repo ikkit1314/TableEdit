@@ -155,7 +155,7 @@ public static class ProfileFill
                 ProfileField.FirstName => person.First,
                 ProfileField.LastName => person.Last,
                 ProfileField.FullName or ProfileField.CardHolder => $"{person.First} {person.Last}",
-                ProfileField.Company => Pick(rng, Data.Companies),
+                ProfileField.Company => RandomCompany(rng),
                 ProfileField.Address1 => address.Street,
                 ProfileField.Address2 => address.Unit,
                 ProfileField.City => address.City,
@@ -166,9 +166,7 @@ public static class ProfileFill
                 ProfileField.CardType => card.Type,
                 ProfileField.CardNumber => card.Number,
                 ProfileField.CardMonth => card.Month.ToString("D2", CultureInfo.InvariantCulture),
-                ProfileField.CardYear => options.FourDigitYear
-                    ? card.Year.ToString(CultureInfo.InvariantCulture)
-                    : (card.Year % 100).ToString("D2", CultureInfo.InvariantCulture),
+                ProfileField.CardYear => card.YearText(options.FourDigitYear),
                 ProfileField.CardCvv => card.Cvv,
                 ProfileField.OneCheckoutPerProfile => "FALSE",
                 _ => "",
@@ -176,6 +174,18 @@ public static class ProfileFill
         }
         return values;
     }
+
+    /// <summary>One made-up person with an address and a test card, shared by every column filled in a row.</summary>
+    public sealed record Sample(Person Person, Address Address, Card Card, bool Canada)
+    {
+        public static Sample Random(Random rng, bool canada = false) =>
+            new(Person.Random(rng), Address.Random(rng, canada), Card.Random(rng), canada);
+
+        public string CountryCode => Canada ? "CA" : "US";
+        public string CountryName => Canada ? "Canada" : "United States";
+    }
+
+    public static string RandomCompany(Random rng) => Pick(rng, Data.Companies);
 
     private static string Pick(Random rng, string[] values) => values[rng.Next(values.Length)];
 
@@ -192,7 +202,7 @@ public static class ProfileFill
         return $"{Ascii(first)}{separator}{Ascii(last)}{rng.Next(1, 1000)}@{Pick(rng, Data.EmailDomains)}";
     }
 
-    private sealed record Person(string First, string Last, string Email)
+    public sealed record Person(string First, string Last, string Email)
     {
         public static Person Random(Random rng)
         {
@@ -202,7 +212,7 @@ public static class ProfileFill
         }
     }
 
-    private sealed record Address(string Street, string Unit, string City, string StateCode, string StateName, string Zip, string Phone)
+    public sealed record Address(string Street, string Unit, string City, string StateCode, string StateName, string Zip, string Phone)
     {
         public static Address Random(Random rng, bool canada)
         {
@@ -224,7 +234,7 @@ public static class ProfileFill
             areaCode + rng.Next(200, 1000).ToString(CultureInfo.InvariantCulture) + rng.Next(0, 10000).ToString("D4", CultureInfo.InvariantCulture);
     }
 
-    private sealed record Card(string Type, string Number, int Month, int Year, string Cvv)
+    public sealed record Card(string Type, string Number, int Month, int Year, string Cvv)
     {
         // Published payment-processor test numbers: they pass format checks but are not real accounts.
         private static readonly (string Type, string Number)[] TestNumbers =
@@ -234,6 +244,10 @@ public static class ProfileFill
             ("Amex", "378282246310005"), ("Amex", "371449635398431"),
             ("Discover", "6011111111111117"), ("Discover", "6011000990139424"),
         };
+
+        public string YearText(bool fourDigits) => fourDigits
+            ? Year.ToString(CultureInfo.InvariantCulture)
+            : (Year % 100).ToString("D2", CultureInfo.InvariantCulture);
 
         public static Card Random(Random rng)
         {

@@ -8,12 +8,15 @@ namespace TableEdit.Model;
 ///   %n7%  7 digits          %c7% 7 lowercase letters   %C7% 7 uppercase letters
 ///   %a7%  7 lowercase letters/digits                     %A7% 7 uppercase letters/digits
 ///   %n18-65%  integer in a range (inclusive)
-///   %fname% %lname% %name% %email% %phone% %city% %country% %company% %date% %uuid% %bool%
+///   %fname% %lname% %name% %email% %phone% %phone10% %company% %date% %uuid% %bool%
+///   %street% %apt% %city% %state% %statename% %zip% %country% %countrycode%
+///   %cardtype% %cardnumber% %cardmonth% %cardyear% %cardyear4% %cvv%
 ///   %row%  row number (1-based)   %row:1000%  row number counting from 1000
 ///   %pick:a|b|c%  one of the listed values
 ///   %[Column]%  value of another column in the same row
 ///   %%  a literal percent sign
-/// Within one row, name, email and similar tokens describe the same random person.
+/// Within one row, every person, address and card token describes the same random person, even across columns
+/// filled together, so a row's city, state, ZIP and phone area code match and the card holder is that person.
 /// </summary>
 public sealed class FillPattern
 {
@@ -31,10 +34,21 @@ public sealed class FillPattern
         ("Last name", "%lname%"),
         ("Full name", "%name%"),
         ("Email", "%email%"),
-        ("Phone (555) 123-4567", "(%n3%) %n3%-%n4%"),
+        ("Phone (555) 123-4567", "%phone%"),
+        ("Phone 10 digits", "%phone10%"),
         ("Phone 7 digits", "%n7%"),
+        ("Street address", "%street%"),
+        ("Apt / unit (often blank)", "%apt%"),
         ("City", "%city%"),
-        ("Country", "%country%"),
+        ("State code (NY)", "%state%"),
+        ("ZIP / postal code", "%zip%"),
+        ("Country (United States)", "%country%"),
+        ("Country code (US)", "%countrycode%"),
+        ("Card type", "%cardtype%"),
+        ("Card number (test)", "%cardnumber%"),
+        ("Card month 01–12", "%cardmonth%"),
+        ("Card year (29)", "%cardyear%"),
+        ("CVV", "%cvv%"),
         ("Company", "%company%"),
         ("Date (yyyy-mm-dd)", "%date%"),
         ("Age 18–65", "%n18-65%"),
@@ -51,8 +65,53 @@ public sealed class FillPattern
 
     public static string Help =>
         "%n7% digits · %c7% / %C7% letters · %a7% / %A7% letters+digits · %n18-65% number range\n" +
-        "%fname% %lname% %name% %email% %phone% %city% %country% %company% %date% %uuid% %bool%\n" +
+        "%fname% %lname% %name% %email% %phone% %phone10% %company% %date% %uuid% %bool%\n" +
+        "%street% %apt% %city% %state% %statename% %zip% %country% %countrycode%\n" +
+        "%cardtype% %cardnumber% %cardmonth% %cardyear% %cardyear4% %cvv% (public test cards)\n" +
         "%row% row number · %row:1000% count from 1000 · %pick:a|b|c% choose one · %[Column]% other column · %% = %";
+
+    /// <summary>
+    /// A pattern that suits a column name (SHIPPING_ZIP → %zip%, First Name → %fname%, CARD_CVV → %cvv%), or null
+    /// when the name gives no clue.
+    /// </summary>
+    public static string? Suggest(string header)
+    {
+        if (ProfileFill.Classify(header) is { } profile)
+            return profile.Field switch
+            {
+                ProfileField.ProfileName or ProfileField.Email => "%email%",
+                ProfileField.Phone => "%phone10%",
+                ProfileField.FirstName => "%fname%",
+                ProfileField.LastName => "%lname%",
+                ProfileField.FullName or ProfileField.CardHolder => "%name%",
+                ProfileField.Company => "%company%",
+                ProfileField.Address1 => "%street%",
+                ProfileField.Address2 => "%apt%",
+                ProfileField.City => "%city%",
+                ProfileField.Zip => "%zip%",
+                ProfileField.State => "%state%",
+                ProfileField.Country => "%countrycode%",
+                ProfileField.SameAsShipping => "TRUE",
+                ProfileField.CardType => "%cardtype%",
+                ProfileField.CardNumber => "%cardnumber%",
+                ProfileField.CardMonth => "%cardmonth%",
+                ProfileField.CardYear => "%cardyear%",
+                ProfileField.CardCvv => "%cvv%",
+                ProfileField.OneCheckoutPerProfile => "FALSE",
+                _ => null,
+            };
+        var key = new string(header.ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray());
+        return key switch
+        {
+            "ID" or "NO" or "NUM" or "NUMBER" or "INDEX" or "ROW" or "ROWNUMBER" => "%row%",
+            "UUID" or "GUID" => "%uuid%",
+            "AGE" => "%n18-65%",
+            "DATE" or "CREATED" or "CREATEDAT" or "UPDATED" or "UPDATEDAT" or "BIRTHDAY" or "DOB" => "%date%",
+            "ACTIVE" or "ENABLED" or "BOOL" => "%bool%",
+            "PASSWORD" or "PASS" => "%A12%",
+            _ => null,
+        };
+    }
 
     /// <summary>Parses a pattern; returns null and an error message when a token is unknown or malformed.</summary>
     public static FillPattern? TryParse(string pattern, out string? error)
@@ -108,7 +167,9 @@ public sealed class FillPattern
 
     private static readonly HashSet<string> Words = new(StringComparer.OrdinalIgnoreCase)
     {
-        "fname", "lname", "name", "email", "phone", "city", "country", "company", "date", "uuid", "bool",
+        "fname", "lname", "name", "email", "phone", "phone10", "company", "date", "uuid", "bool",
+        "street", "apt", "city", "state", "statename", "zip", "country", "countrycode",
+        "cardtype", "cardnumber", "cardmonth", "cardyear", "cardyear4", "cvv",
     };
 
     private static Token? ParseToken(string body)
@@ -140,9 +201,10 @@ public sealed class FillPattern
 
     /// <param name="rowNumber">1-based position of the row being filled.</param>
     /// <param name="columnValue">Looks up another column's value in this row by name; null when it does not exist.</param>
-    public string Generate(Random rng, long rowNumber, Func<string, string?> columnValue)
+    /// <param name="sample">This row's random person; pass the same one to every column filled in the row.</param>
+    public string Generate(Random rng, long rowNumber, Func<string, string?> columnValue, ProfileFill.Sample? sample = null)
     {
-        var person = new Lazy<Person>(() => Person.Random(rng));
+        var row = new Lazy<ProfileFill.Sample>(() => sample ?? ProfileFill.Sample.Random(rng));
         var sb = new StringBuilder();
         foreach (var part in _parts)
         {
@@ -169,14 +231,30 @@ public sealed class FillPattern
                     sb.Append(options[rng.Next(options.Length)]);
                     break;
                 case "col": sb.Append(columnValue(t.Arg) ?? ""); break;
-                case "fname": sb.Append(person.Value.First); break;
-                case "lname": sb.Append(person.Value.Last); break;
-                case "name": sb.Append(person.Value.First).Append(' ').Append(person.Value.Last); break;
-                case "email": sb.Append(person.Value.Email); break;
-                case "phone": sb.Append(person.Value.Phone); break;
-                case "city": sb.Append(Pick(rng, Data.Cities)); break;
-                case "country": sb.Append(Pick(rng, Data.Countries)); break;
-                case "company": sb.Append(Pick(rng, Data.CompanyFirst)).Append(' ').Append(Pick(rng, Data.CompanySuffix)); break;
+                case "fname": sb.Append(row.Value.Person.First); break;
+                case "lname": sb.Append(row.Value.Person.Last); break;
+                case "name": sb.Append(row.Value.Person.First).Append(' ').Append(row.Value.Person.Last); break;
+                case "email": sb.Append(row.Value.Person.Email); break;
+                case "phone":
+                    var digits = row.Value.Address.Phone;
+                    sb.Append('(').Append(digits[..3]).Append(") ").Append(digits[3..6]).Append('-').Append(digits[6..]);
+                    break;
+                case "phone10": sb.Append(row.Value.Address.Phone); break;
+                case "company": sb.Append(ProfileFill.RandomCompany(rng)); break;
+                case "street": sb.Append(row.Value.Address.Street); break;
+                case "apt": sb.Append(row.Value.Address.Unit); break;
+                case "city": sb.Append(row.Value.Address.City); break;
+                case "state": sb.Append(row.Value.Address.StateCode); break;
+                case "statename": sb.Append(row.Value.Address.StateName); break;
+                case "zip": sb.Append(row.Value.Address.Zip); break;
+                case "country": sb.Append(row.Value.CountryName); break;
+                case "countrycode": sb.Append(row.Value.CountryCode); break;
+                case "cardtype": sb.Append(row.Value.Card.Type); break;
+                case "cardnumber": sb.Append(row.Value.Card.Number); break;
+                case "cardmonth": sb.Append(row.Value.Card.Month.ToString("D2", CultureInfo.InvariantCulture)); break;
+                case "cardyear": sb.Append(row.Value.Card.YearText(false)); break;
+                case "cardyear4": sb.Append(row.Value.Card.YearText(true)); break;
+                case "cvv": sb.Append(row.Value.Card.Cvv); break;
                 case "date": sb.Append(DateTime.Today.AddDays(-rng.Next(0, 365 * 5)).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)); break;
                 case "uuid": sb.Append(Guid.NewGuid().ToString()); break;
                 case "bool": sb.Append(rng.Next(2) == 0 ? "true" : "false"); break;
@@ -190,76 +268,4 @@ public sealed class FillPattern
         for (int i = 0; i < count; i++) sb.Append(alphabet[rng.Next(alphabet.Length)]);
     }
 
-    private static string Pick(Random rng, string[] values) => values[rng.Next(values.Length)];
-
-    private sealed record Person(string First, string Last, string Email, string Phone)
-    {
-        public static Person Random(Random rng)
-        {
-            var first = Pick(rng, Data.FirstNames);
-            var last = Pick(rng, Data.LastNames);
-            var email = $"{Ascii(first)}.{Ascii(last)}{(rng.Next(3) == 0 ? rng.Next(1, 100).ToString(CultureInfo.InvariantCulture) : "")}@{Pick(rng, Data.EmailDomains)}";
-            var phone = $"({rng.Next(200, 1000)}) {rng.Next(200, 1000)}-{rng.Next(0, 10000):D4}";
-            return new Person(first, last, email, phone);
-        }
-
-        private static string Ascii(string s)
-        {
-            var sb = new StringBuilder();
-            foreach (var ch in s.Normalize(NormalizationForm.FormD))
-                if (ch < 128 && char.IsLetter(ch)) sb.Append(char.ToLowerInvariant(ch));
-            return sb.ToString();
-        }
-    }
-
-    private static class Data
-    {
-        public static readonly string[] FirstNames =
-        {
-            "James", "Mary", "John", "Patricia", "Robert", "Jennifer", "Michael", "Linda", "William", "Elizabeth",
-            "David", "Barbara", "Richard", "Susan", "Joseph", "Jessica", "Thomas", "Sarah", "Charles", "Karen",
-            "Daniel", "Nancy", "Matthew", "Lisa", "Anthony", "Betty", "Mark", "Margaret", "Steven", "Sandra",
-            "Paul", "Ashley", "Andrew", "Emily", "Joshua", "Donna", "Kevin", "Michelle", "Brian", "Carol",
-            "George", "Amanda", "Edward", "Melissa", "Ryan", "Deborah", "Jacob", "Stephanie", "Nicholas", "Rebecca",
-            "Eric", "Laura", "Jonathan", "Sharon", "Justin", "Cynthia", "Brandon", "Kathleen", "Samuel", "Amy",
-            "Wei", "Mei", "Hiroshi", "Yuki", "Min-jun", "Seo-yeon", "Arjun", "Priya", "Mohammed", "Fatima",
-            "Lucas", "Sofia", "Mateo", "Valentina", "Noah", "Emma", "Liam", "Olivia", "Ethan", "Chloé",
-            "Ivan", "Anna", "Luca", "Giulia", "Hugo", "Léa", "Omar", "Aisha", "Chen", "Lin",
-        };
-
-        public static readonly string[] LastNames =
-        {
-            "Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis", "Rodriguez", "Martinez",
-            "Hernandez", "Lopez", "Gonzalez", "Wilson", "Anderson", "Thomas", "Taylor", "Moore", "Jackson", "Martin",
-            "Lee", "Perez", "Thompson", "White", "Harris", "Sanchez", "Clark", "Ramirez", "Lewis", "Robinson",
-            "Walker", "Young", "Allen", "King", "Wright", "Scott", "Torres", "Nguyen", "Hill", "Flores",
-            "Green", "Adams", "Nelson", "Baker", "Hall", "Rivera", "Campbell", "Mitchell", "Carter", "Roberts",
-            "Wang", "Li", "Zhang", "Liu", "Chen", "Tan", "Wong", "Kim", "Park", "Sato",
-            "Suzuki", "Tanaka", "Patel", "Singh", "Khan", "Ali", "Müller", "Schmidt", "Dubois", "Rossi",
-            "Silva", "Santos", "Novak", "Kowalski", "Ivanov", "O'Brien", "Murphy", "Kelly", "Cohen", "Haddad",
-        };
-
-        public static readonly string[] Cities =
-        {
-            "Toronto", "Vancouver", "Montreal", "New York", "Los Angeles", "Chicago", "London", "Paris", "Berlin", "Madrid",
-            "Rome", "Amsterdam", "Tokyo", "Seoul", "Shanghai", "Beijing", "Hong Kong", "Singapore", "Kuala Lumpur", "Sydney",
-            "Melbourne", "São Paulo", "Mexico City", "Dubai", "Mumbai", "Bangkok", "Istanbul", "Cairo", "Stockholm", "Dublin",
-        };
-
-        public static readonly string[] Countries =
-        {
-            "Canada", "United States", "United Kingdom", "France", "Germany", "Spain", "Italy", "Netherlands", "Japan", "South Korea",
-            "China", "Singapore", "Malaysia", "Australia", "Brazil", "Mexico", "India", "Thailand", "Turkey", "Sweden",
-        };
-
-        public static readonly string[] CompanyFirst =
-        {
-            "Acme", "Globex", "Initech", "Northwind", "Contoso", "Fabrikam", "Umbrella", "Stark", "Wayne", "Pioneer",
-            "Summit", "Bluewave", "Redwood", "Silverline", "Brightpath", "Ironclad", "Maple", "Harbor", "Nimbus", "Vertex",
-        };
-
-        public static readonly string[] CompanySuffix = { "Inc.", "LLC", "Ltd.", "Group", "Labs", "Corp.", "Holdings", "Systems", "Partners", "Co." };
-
-        public static readonly string[] EmailDomains = { "example.com", "mail.com", "inbox.net", "corp.io", "test.org" };
-    }
 }

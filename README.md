@@ -95,3 +95,10 @@ See [tests/README.md](tests/README.md) for native mouse/keyboard regression chec
 - 安装好的 App 每天启动时会悄悄检查一次，只有发现新版本才弹出提示；可以在更新窗口关闭自动检查，或跳过某个版本。设置保存在 `~/Library/Application Support/TableEdit/update.json`。
 - 如果 App 不在可写的文件夹里（比如直接从 DMG 运行），按钮会变成 **Download**，用浏览器下载 DMG 手动安装。Windows / Linux 只打开 Release 页面。
 - 1.3.4 及更早的版本没有这个功能，需要手动安装一次 1.4.0，之后就可以在 App 内更新。
+
+## 多列自动填充与重复粘贴（1.5.0）
+
+- **Column › Auto-Fill Columns…（⇧⌘F）** 列出所有列，并按列名自动匹配模板：`SHIPPING_FIRST_NAME` → `%fname%`、`SHIPPING_ZIP` / `Postal Code` → `%zip%`、`CARD_CVV` → `%cvv%` 等。模板可以直接改，也可以用 Preset 替换当前选中的模板。
+- 可以一次勾选多列（打开时默认勾选选中的列；**Tick All Matched** 勾选所有识别出来的列），一步填完。同一行的所有列属于同一个随机的人：卡主姓名和名字一致，城市、州、ZIP、电话区号互相对应。可勾选加拿大地址。
+- 新增模板：`%street%` `%apt%` `%state%` `%statename%` `%zip%` `%countrycode%` `%phone10%` `%cardtype%` `%cardnumber%` `%cardmonth%` `%cardyear%` `%cardyear4%` `%cvv%`；`%city%`、`%country%` 现在和地址其余部分对应。卡号是公开的测试卡号。
+- **重复粘贴**：复制一行，选中多行再粘贴，这一行会重复填进每个选中的行（宽度按复制的行向右展开）；复制多行时也会按顺序循环填满选区。一次撤销即可还原。
