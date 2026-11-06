@@ -46,7 +46,7 @@ DMG 本身不能代替 Apple Developer 签名和公证。若该 Release 标注 *
 - **Ctrl+Space** 或 **Select Column** 选中当前列的可见单元格；点击左侧行号或 **Select Rows** 选中整行，Shift 点击行号选择连续多行。
 - 点击列标题切换 **A→Z / Z→A** 排序；选择整列请使用 Select Column 或 Ctrl+Space。
 - **Delete / Backspace** 清空选中单元格；**Delete Rows**、右键菜单或 **Ctrl/Cmd+Delete/Backspace** 删除这些单元格所在的整行。以上操作都支持撤销。
-- **Ctrl/Cmd+C / X / V** 复制、剪切、粘贴矩形单元格，使用制表符分隔列。单个值可以填满选区；超出表格大小的粘贴会提示先添加行或列。
+- **Ctrl/Cmd+C / X / V** 复制、剪切、粘贴矩形单元格，使用制表符分隔列。单个值可以填满选区；粘贴内容超出表格时会自动在末尾补行、在右边补列（一次撤销即可还原）。
 - 双击、**F2 / Enter** 开始编辑单元格，也可以直接输入新值。编辑状态下保留文本框的选择和快捷键操作。
 - **Find Column Duplicates** 检查当前列在整个文档中的重复值，显示每组的所有记录，包含首次出现的记录。比较区分大小写和空格，忽略空单元格；不会删除数据。删除 / 修改重复项后结果会刷新，**Show All** 清除筛选。
 
@@ -76,3 +76,14 @@ See [tests/README.md](tests/README.md) for native mouse/keyboard regression chec
 - 文件开始加载时立即占用它的目标窗口，修复多文件一起到达时互相覆盖、最终只显示一个 CSV 的问题。
 - 已经打开或正在加载的同一文件会聚焦原窗口，不会重新读取并覆盖未保存的编辑；有未保存内容的空白窗口也不会被新文件替换。
 - 关闭一个窗口不会关闭其他 CSV；每个窗口拥有独立的数据、保存路径及撤销记录。
+
+## 粘贴自动扩表与随机资料填充
+
+- **⌘V 粘贴超出表格**：粘贴的行数或列数比表格多时，会自动在末尾添加行、在右边添加列（Column 4、Column 5…），不再提示“Paste exceeds the table”。从表格软件复制时末尾的空行会被忽略。粘贴后自动选中粘贴的区域；一次 ⌘Z 同时撤销新加的行列和写入的值。空表格（没有行）也可以直接粘贴。
+- **Data › Fill Profiles with Random Data…（⇧⌘P）**：按列名自动识别资料字段，每行生成一个随机的人，并填进对应的列。
+  - 识别 `PROFILE_NAME;EMAIL;PHONE;SHIPPING_FIRST_NAME;…;BILLING_SAME_AS_SHIPPING;CARD_HOLDER_NAME;CARD_TYPE;CARD_NUMBER;CARD_MONTH;CARD_YEAR;CARD_CVV;ONE_CHECKOUT_PER_PROFILE` 这类表头，也识别 `First Name`、`Last Name`、`Address`、`Postal Code`、`Province` 等常见写法（不分大小写、空格、下划线）。
+  - 默认只填空格：已经粘贴进去的邮箱会保留，PROFILE_NAME 默认用这一行的邮箱；已有的名字也会用到卡主姓名里。
+  - 城市、州/省、ZIP/邮编、电话区号互相对应；可选美国或加拿大地址，可选写缩写（US、NY）或全称。
+  - 勾选 Billing same as shipping 时账单地址和收货地址相同，BILLING_SAME_AS_SHIPPING 写 TRUE；ONE_CHECKOUT_PER_PROFILE 写 FALSE。
+  - 卡号使用公开的测试卡号（4242…、5555… 等），不是真实卡，使用前请换成自己的卡。
+  - 可以只填选中行或搜索结果中的行，也可以在末尾新增 N 个资料；表格里还没有这些列时可以一键添加标准列。整个操作一次撤销。

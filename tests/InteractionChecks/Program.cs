@@ -243,6 +243,8 @@ internal static class Program
         await Key("z", control: true);
         Equal("20\tgreen", string.Join('\t', Rows()[3].Cells.Skip(1)), "Undo restores overwritten paste values");
 
+        await CheckPasteGrowsTable();
+
         var filter = _window.FindControl<TextBox>("FilterBox")!;
         await Click(filter);
         await Key("a");
@@ -254,6 +256,7 @@ internal static class Program
 
         await CheckScopedFindReplace();
         await CheckSelectedTransforms();
+        await CheckProfileFill();
 
         var largePath = Path.Combine(_directory, "long.csv");
         File.WriteAllText(largePath, "Name,Value,Group\n" + string.Join('\n', Enumerable.Range(0, 200).Select(i => $"Item{i},{i},g{i}")));
@@ -535,6 +538,64 @@ internal static class Program
         await Click(_window.FindControl<Button>("ShowAllButton")!);
         True(Rows().Count == 4 && Rows()[1].Cells[2] == "red" && Rows()[0].Cells[2] == " untouched ",
             "filtering and clearing leave every unselected record unchanged");
+    }
+
+    private static void PasteText(string text) =>
+        typeof(MainWindow).GetMethod("PasteCellsText", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(_window, new object[] { text });
+
+    private static async Task CheckPasteGrowsTable()
+    {
+        // Six rows, three columns: paste eight rows of two values starting at row 4, column 2 (Group).
+        await ClickCell(4, 2);
+        var block = string.Join("\n", Enumerable.Range(1, 8).Select(i => $"p{i}\tq{i}")) + "\n";
+        PasteText(block);
+        await Pause();
+        Equal("12", Rows().Count.ToString(), "pasting past the last row adds the rows it needs (trailing newline ignored)");
+        Equal("Name,Value,Group,Column 4", string.Join(',', _grid.Columns.Select(c => c.Header is TextBlock t ? t.Text : c.Header?.ToString())),
+            "pasting past the last column adds a column");
+        Equal("p1\tq1", string.Join('\t', Rows()[4].Cells.Skip(2)), "pasted block starts at the selected cell");
+        Equal("p8\tq8", string.Join('\t', Rows()[11].Cells.Skip(2)), "the last pasted row lands in a new row");
+        Equal("Delta,40,red,", string.Join(',', Rows()[0].Cells), "rows above the paste only gain an empty cell");
+        Equal(string.Join(Environment.NewLine, Enumerable.Range(1, 8).Select(i => $"p{i}\tq{i}")), SelectedText(),
+            "the grown paste is selected afterwards");
+        await Key("z", control: true);
+        await Pause();
+        Equal("6", Rows().Count.ToString(), "one Undo removes the rows added by the paste");
+        Equal("3", _grid.Columns.Count.ToString(), "the same Undo removes the added column");
+        Equal("Echo,50,blue", string.Join(',', Rows()[4].Cells), "Undo restores values under the grown paste");
+    }
+
+    private static async Task CheckProfileFill()
+    {
+        var headers = "PROFILE_NAME;EMAIL;PHONE;SHIPPING_FIRST_NAME;SHIPPING_LAST_NAME;SHIPPING_ADDRESS;SHIPPING_ADDRESS_2;SHIPPING_CITY;SHIPPING_ZIP;SHIPPING_STATE;SHIPPING_COUNTRY;BILLING_FIRST_NAME;BILLING_LAST_NAME;BILLING_ADDRESS;BILLING_ADDRESS_2;BILLING_CITY;BILLING_ZIP;BILLING_STATE;BILLING_COUNTRY;BILLING_SAME_AS_SHIPPING;CARD_HOLDER_NAME;CARD_TYPE;CARD_NUMBER;CARD_MONTH;CARD_YEAR;CARD_CVV;ONE_CHECKOUT_PER_PROFILE";
+        var path = Path.Combine(_directory, "profiles.csv");
+        File.WriteAllText(path, headers + "\n;00-stale.tonics@icloud.com" + new string(';', 25) + "\n;01guided.trophy@icloud.com" + new string(';', 25) + "\n");
+        await _window.LoadFileAsync(path);
+        await WaitUntil(() => _grid.Columns.Count == 27 && Rows().Count == 2);
+        var names = headers.Split(';');
+        int Col(string name) => Array.IndexOf(names, name);
+
+        _window.ApplyProfileFill(new ProfileFillRequest(FillScope.AllRows, OnlyEmpty: true, AddRows: 3, AddStandardColumns: false,
+            new ProfileOptions(Canada: false, Codes: true, BillingSameAsShipping: true, FourDigitYear: false)));
+        await Pause();
+        var rows = Rows();
+        Equal("5", rows.Count.ToString(), "profile fill adds the requested new profiles");
+        True(rows.All(r => r.Cells.Select((v, i) => (v, i)).All(x => x.v.Length > 0 || x.i == Col("SHIPPING_ADDRESS_2") || x.i == Col("BILLING_ADDRESS_2"))),
+            "profile fill leaves no recognised column empty except address line 2");
+        Equal("00-stale.tonics@icloud.com", rows[0].Cells[Col("EMAIL")], "existing emails are kept");
+        Equal("00-stale.tonics@icloud.com", rows[0].Cells[Col("PROFILE_NAME")], "profile name defaults to the row's email");
+        True(rows.All(r => r.Cells[Col("BILLING_ADDRESS")] == r.Cells[Col("SHIPPING_ADDRESS")] && r.Cells[Col("BILLING_ZIP")] == r.Cells[Col("SHIPPING_ZIP")]
+            && r.Cells[Col("BILLING_SAME_AS_SHIPPING")] == "TRUE"), "billing copies shipping when same-as-shipping is on");
+        True(rows.All(r => r.Cells[Col("CARD_HOLDER_NAME")] == r.Cells[Col("SHIPPING_FIRST_NAME")] + " " + r.Cells[Col("SHIPPING_LAST_NAME")]),
+            "card holder is the profile's own name");
+        True(rows.All(r => r.Cells[Col("PHONE")].Length == 10 && r.Cells[Col("PHONE")].All(char.IsDigit)
+            && r.Cells[Col("SHIPPING_ZIP")].Length == 5 && r.Cells[Col("SHIPPING_STATE")].Length == 2 && r.Cells[Col("SHIPPING_COUNTRY")] == "US"
+            && r.Cells[Col("CARD_MONTH")].Length == 2 && r.Cells[Col("CARD_YEAR")].Length == 2),
+            "phones, ZIPs, states, country and expiry use the short bot-friendly formats");
+        await Key("z", control: true);
+        await Pause();
+        Equal("2", Rows().Count.ToString(), "one Undo removes filled profiles and added rows");
+        Equal("", Rows()[0].Cells[Col("PHONE")], "Undo clears the filled cells");
     }
 
     private static async Task ContextAction(string label, Control cell)

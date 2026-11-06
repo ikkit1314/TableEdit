@@ -224,6 +224,7 @@ public partial class MainWindow : Window
                 _headerToggle),
             Sub("Data",
                 Item("Auto-Fill Column…", () => _ = AutoFillAsync()),
+                Item("Fill Profiles with Random Data…", () => _ = ProfileFillAsync(), Key.P, KeyModifiers.Shift),
                 Sub("Selected Cells",
                     Item("Trim Whitespace", () => TransformSelectedCells("Trim Selected Cells", s => s.Trim())),
                     Item("UPPERCASE", () => TransformSelectedCells("Uppercase Selected Cells", s => s.ToUpper(CultureInfo.CurrentCulture))),
@@ -1211,6 +1212,83 @@ public partial class MainWindow : Window
             return filled > 0 || request.Column < 0;
         });
         StatusText.Text = $"Auto-filled {filled:N0} cells" + (added > 0 ? $", added {added:N0} rows." : ".");
+    }
+
+    private async Task ProfileFillAsync()
+    {
+        Table.CommitEdit();
+        var names = _headers.Select((_, i) => ColumnName(i)).ToList();
+        var request = await new ProfileFillWindow(names, SelectedRows().Count > 1, !CurrentSearch().IsEmpty)
+            .ShowDialog<ProfileFillRequest?>(this);
+        if (request != null) ApplyProfileFill(request);
+    }
+
+    /// <summary>Fills every recognised profile column with one random person per row, in one undoable step.</summary>
+    public void ApplyProfileFill(ProfileFillRequest request)
+    {
+        var selected = SelectedRows().ToHashSet();
+        var visible = _visible.ToHashSet();
+        int filled = 0, profiles = 0, addedColumns = 0;
+
+        Structural("Fill Profiles", () =>
+        {
+            if (request.AddStandardColumns)
+            {
+                // A brand-new blank table (Column 1, Column 2… with nothing typed) takes the standard headers outright.
+                bool blank = _headers.Select((h, i) => h == $"Column {i + 1}").All(x => x) && _rows.All(r => r.Cells.All(string.IsNullOrEmpty));
+                if (blank)
+                {
+                    addedColumns = ProfileFillWindow.StandardColumns.Length;
+                    _headers = ProfileFillWindow.StandardColumns.ToList();
+                    foreach (var r in _rows) r.SetAll(Enumerable.Repeat("", _headers.Count).ToList());
+                    _sortColumn = -1;
+                }
+                else
+                {
+                    var names = _headers.Select((_, i) => ColumnName(i)).ToList();
+                    foreach (var name in ProfileFillWindow.StandardColumns)
+                        if (!names.Contains(name, StringComparer.OrdinalIgnoreCase)) { _headers.Add(name); addedColumns++; }
+                    foreach (var r in _rows) r.EnsureWidth(_headers.Count);
+                }
+            }
+
+            var columns = ProfileFill.Detect(_headers.Select((_, i) => ColumnName(i)).ToList());
+            if (columns.Count == 0) return addedColumns > 0;
+
+            var newRows = new HashSet<Row>();
+            double order = _rows.Count > 0 ? _rows.Max(r => r.Order) : 0;
+            for (int i = 0; i < request.AddRows; i++)
+            {
+                var row = new Row(Enumerable.Repeat("", _headers.Count)) { Order = ++order };
+                _rows.Add(row);
+                newRows.Add(row);
+            }
+
+            var rng = new Random();
+            foreach (var row in _rows)
+            {
+                bool target = newRows.Contains(row) || request.Scope switch
+                {
+                    FillScope.SelectedRows => selected.Contains(row),
+                    FillScope.VisibleRows => visible.Contains(row),
+                    _ => true,
+                };
+                if (!target) continue;
+                row.EnsureWidth(_headers.Count);
+                var values = ProfileFill.Generate(rng, columns, c => row.Cells[c], request.OnlyEmpty, request.Options);
+                foreach (var (col, value) in values)
+                {
+                    if (row.Cells[col] == value) continue;
+                    row.Cells[col] = value;
+                    filled++;
+                }
+                profiles++;
+            }
+            return filled > 0 || newRows.Count > 0 || addedColumns > 0;
+        });
+        StatusText.Text = $"Filled {filled:N0} cells in {profiles:N0} profiles"
+            + (request.AddRows > 0 ? $" ({request.AddRows:N0} new)" : "")
+            + (addedColumns > 0 ? $", added {addedColumns} columns." : ".");
     }
 
     // ───────────────────────────── data cleaning ─────────────────────────────

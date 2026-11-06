@@ -374,27 +374,82 @@ public partial class MainWindow
 
     private void PasteCellsText(string text)
     {
-        if (!Table.CommitEdit() || !_cells.HasSelection) return;
+        if (!Table.CommitEdit()) return;
+        // An empty table has nothing to click on, so paste at its first cell.
+        bool emptyTable = !_cells.HasSelection && _visible.Count == 0 && _headers.Count > 0 && CurrentSearch().IsEmpty;
+        if (!_cells.HasSelection && !emptyTable) return;
         var records = Csv.Parse(text, '\t');
+        // Text copied from a spreadsheet ends with a newline; don't turn it into an extra blank row.
+        while (records.Count > 1 && records[^1].All(string.IsNullOrEmpty)) records.RemoveAt(records.Count - 1);
         if (records.Count == 0) return;
-        int top = _cells.Top, left = _cells.Left;
-        int height = records.Count == 1 && records[0].Length == 1 ? _cells.Bottom - top + 1 : records.Count;
-        int width = records.Count == 1 && records[0].Length == 1 ? _cells.Right - left + 1 : records.Max(r => r.Length);
+        bool single = records.Count == 1 && records[0].Length == 1;
+        int top = emptyTable ? 0 : _cells.Top, left = emptyTable ? 0 : _cells.Left;
+        int height = single && !emptyTable ? _cells.Bottom - top + 1 : records.Count;
+        int width = single && !emptyTable ? _cells.Right - left + 1 : records.Max(r => r.Length);
+        string ValueAt(int r, int c) => single ? records[0][0] : c < records[r].Length ? records[r][c] : "";
+
         if (top + height > _visible.Count || left + width > _headers.Count)
         {
-            StatusText.Text = "Paste exceeds the table. Insert rows or columns first, then paste again.";
+            PasteGrowingTable(top, left, height, width, ValueAt);
             return;
         }
         var changes = new List<(Row Row, int Col, string Old, string New)>();
         for (int r = 0; r < height; r++)
             for (int c = 0; c < width; c++)
             {
-                string value = records.Count == 1 && records[0].Length == 1 ? records[0][0] :
-                    c < records[r].Length ? records[r][c] : "";
+                string value = ValueAt(r, c);
                 var row = _visible[top + r];
                 if (row.Cells[left + c] != value) changes.Add((row, left + c, row.Cells[left + c], value));
             }
         ApplyCellChanges("Paste Cells", changes);
+    }
+
+    /// <summary>
+    /// Pastes a block that runs past the last visible row or column: new rows go at the end of the
+    /// table and new columns on the right, all in one undoable step.
+    /// </summary>
+    private void PasteGrowingTable(int top, int left, int height, int width, Func<int, int, string> valueAt)
+    {
+        var targets = _visible.Skip(top).Take(height).ToList();
+        int addedRows = height - targets.Count;
+        int addedColumns = Math.Max(0, left + width - _headers.Count);
+        Structural("Paste Cells", () =>
+        {
+            for (int i = 0; i < addedColumns; i++) _headers.Add(UniqueColumnName(_headers.Count + 1));
+            foreach (var r in _rows) r.EnsureWidth(_headers.Count);
+            double order = _rows.Count > 0 ? _rows.Max(r => r.Order) : 0;
+            for (int i = 0; i < addedRows; i++)
+            {
+                var row = new Row(Enumerable.Repeat("", _headers.Count)) { Order = ++order };
+                _rows.Add(row);
+                targets.Add(row);
+            }
+            for (int r = 0; r < height; r++)
+                for (int c = 0; c < width; c++)
+                    targets[r].Cells[left + c] = valueAt(r, c);
+            return true;
+        });
+
+        // Select what was pasted so it can be checked or copied straight away.
+        if (_visibleIndices.TryGetValue(targets[0], out int first))
+        {
+            int last = first;
+            for (int r = targets.Count - 1; r > 0; r--)
+                if (_visibleIndices.TryGetValue(targets[r], out last)) break;
+            SelectCell(first, left);
+            SelectCell(Math.Max(first, last), left + width - 1, true);
+        }
+        var grew = new List<string>();
+        if (addedRows > 0) grew.Add(addedRows == 1 ? "1 row" : $"{addedRows:N0} rows");
+        if (addedColumns > 0) grew.Add(addedColumns == 1 ? "1 column" : $"{addedColumns:N0} columns");
+        StatusText.Text = $"Paste Cells: {(long)height * width:N0} cells, added {string.Join(" and ", grew)}.";
+    }
+
+    private string UniqueColumnName(int number)
+    {
+        var name = $"Column {number}";
+        while (_headers.Contains(name, StringComparer.OrdinalIgnoreCase)) name = $"Column {++number}";
+        return name;
     }
 
     private void ApplyCellChanges(string name, List<(Row Row, int Col, string Old, string New)> changes, bool deferFilter = false)

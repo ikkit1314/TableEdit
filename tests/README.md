@@ -10,6 +10,8 @@ The range-typing and duplicate-highlighting implementation passed 75 checks. New
 
 The multiple-document implementation passed 89 checks in total. The runner starts the actual app with three CSV arguments, then verifies simultaneous loads, reuse of only an empty window, pending/open duplicate requests, document-specific edits and undo, preservation of unsaved documents, the Window menu, and keeping documents usable after the original app window closes. The macOS packaging smoke check separately counts real document windows for both startup arguments and file-open activation in the already-running app.
 
+The paste-growing and profile-fill implementation passed 107 checks. New checks paste a block past the last row and column, verify the added rows/columns, selection and one-step undo, then fill a 27-column bot profile sheet and check kept emails, billing-same-as-shipping, card holder names, value formats and undo.
+
 Requirements: .NET 8, Linux with an X11 display, `libX11` and `libXtst`, and fonts usable by Avalonia. Run on an otherwise unused virtual display because these checks move its pointer and change focus.
 
 ```sh
