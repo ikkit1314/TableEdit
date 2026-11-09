@@ -238,6 +238,7 @@ public partial class MainWindow : Window
                 Item("Remove Empty Rows", RemoveEmptyRows),
                 Item("Find Duplicates in Current Column", FindColumnDuplicates),
                 Item("Remove Duplicate Rows", RemoveDuplicateRows),
+                Item("Remove Rows Duplicated in Current Column", RemoveRowsDuplicatedInColumn),
                 Item("Fill Empty Cells from Above (Current Column)", FillDown),
                 Sep(),
                 Item("UPPERCASE Current Column", () => ChangeCase("Uppercase", s => s.ToUpper(CultureInfo.CurrentCulture))),

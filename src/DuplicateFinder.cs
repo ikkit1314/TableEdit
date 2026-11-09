@@ -53,6 +53,40 @@ public partial class MainWindow
             $"({matchingRows - values.Count:N0} extra occurrences) · duplicates highlighted in yellow · exact match · empty cells ignored · Show All to return.";
     }
 
+    /// <summary>
+    /// Keeps the first row for each value in the current column and removes every later row whose
+    /// value repeats it. Empty cells are ignored, so rows with a blank key are never removed; case
+    /// and whitespace remain significant, matching Find Duplicates in Current Column.
+    /// </summary>
+    private void RemoveRowsDuplicatedInColumn()
+    {
+        if (!Table.CommitEdit()) return;
+        int column = CurrentCol;
+        if (column < 0 || column >= _headers.Count)
+        {
+            StatusText.Text = "Select a cell in the column whose duplicate rows you want to remove.";
+            return;
+        }
+
+        string name = ColumnName(column);
+        int removed = 0;
+        Structural("Remove Rows Duplicated in Column", () =>
+        {
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            removed = _rows.RemoveAll(r =>
+            {
+                if (column >= r.Cells.Count) return false;
+                string value = r.Cells[column];
+                if (string.IsNullOrEmpty(value)) return false;
+                return !seen.Add(value);
+            });
+            return removed > 0;
+        });
+        StatusText.Text = removed > 0
+            ? $"Removed {removed:N0} row(s) repeating a value in {name} · first occurrence kept · empty cells ignored."
+            : $"No repeated values in {name} · empty cells ignored.";
+    }
+
     private List<Row> FilterDuplicateRows(List<Row> rows)
     {
         if (!DuplicateFilterActive) return rows;
