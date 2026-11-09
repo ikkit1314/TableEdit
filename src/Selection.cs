@@ -91,6 +91,8 @@ public partial class MainWindow
                 Action("UPPERCASE Selected Cells", () => TransformSelectedCells("Uppercase Selected Cells", s => s.ToUpper(System.Globalization.CultureInfo.CurrentCulture))),
                 Action("lowercase Selected Cells", () => TransformSelectedCells("Lowercase Selected Cells", s => s.ToLower(System.Globalization.CultureInfo.CurrentCulture))),
                 new Separator(),
+                Action("Insert Row Above", InsertRowAbove),
+                Action("Insert Row Below", InsertRow),
                 Action("Select Row", SelectCurrentRow),
                 Action("Select Column", () => SelectColumn(CurrentCol)),
                 Action("Delete Rows", DeleteRows),

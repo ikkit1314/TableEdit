@@ -200,6 +200,7 @@ public partial class MainWindow : Window
                 Item("Clear Search", ClearFilter),
                 Item("Find & Replace…", ShowFind, Key.F, KeyModifiers.Alt),
                 Sep(),
+                Item("Insert Row Above", InsertRowAbove),
                 Item("Insert Row Below", InsertRow, Key.Enter),
                 Item("Duplicate Selected Rows", DuplicateRows, Key.D),
                 Item("Delete Selected Rows", DeleteRows, Key.Back),
@@ -238,6 +239,7 @@ public partial class MainWindow : Window
                 Item("Remove Empty Rows", RemoveEmptyRows),
                 Item("Find Duplicates in Current Column", FindColumnDuplicates),
                 Item("Remove Duplicate Rows", RemoveDuplicateRows),
+                Item("Remove Rows Duplicated in Current Column", RemoveRowsDuplicatedInColumn),
                 Item("Fill Empty Cells from Above (Current Column)", FillDown),
                 Sep(),
                 Item("UPPERCASE Current Column", () => ChangeCase("Uppercase", s => s.ToUpper(CultureInfo.CurrentCulture))),
@@ -991,12 +993,15 @@ public partial class MainWindow : Window
         : (Table.SelectedItems?.OfType<Row>() ?? Enumerable.Empty<Row>()).ToList();
 
     /// <summary>Inserts rows after the current selection (or at the end) with lightweight undo.</summary>
-    private void InsertRows(string name, List<Row> newRows)
+    private void InsertRows(string name, List<Row> newRows, bool above = false)
     {
         if (newRows.Count == 0) return;
         Table.CommitEdit();
-        int anchor = Table.SelectedItem is Row sel ? _rows.IndexOf(sel) + 1 : _rows.Count;
-        int visibleAnchor = Table.SelectedItem is Row vs ? _visible.IndexOf(vs) + 1 : _visible.Count;
+        // Below the selection (default) slots after the anchor; above slots before it. With no
+        // selection, new rows go to the end either way.
+        int offset = above ? 0 : 1;
+        int anchor = Table.SelectedItem is Row sel ? _rows.IndexOf(sel) + offset : _rows.Count;
+        int visibleAnchor = Table.SelectedItem is Row vs ? _visible.IndexOf(vs) + offset : _visible.Count;
 
         // Slot new rows right after their anchor in "original order".
         double baseOrder = anchor > 0 ? _rows[anchor - 1].Order : (_rows.Count > 0 ? _rows.Min(r => r.Order) - 1 : 0);
@@ -1016,6 +1021,9 @@ public partial class MainWindow : Window
 
     private void InsertRow() =>
         InsertRows("Insert Row", new List<Row> { new(Enumerable.Repeat("", _headers.Count)) });
+
+    private void InsertRowAbove() =>
+        InsertRows("Insert Row Above", new List<Row> { new(Enumerable.Repeat("", _headers.Count)) }, above: true);
 
     private void DuplicateRows()
     {

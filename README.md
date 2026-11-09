@@ -45,10 +45,12 @@ DMG 本身不能代替 Apple Developer 签名和公证。若该 Release 标注 *
 - **Shift+方向键** 扩展选区；**Ctrl+Shift+↑/↓** 扩展到当前列的首行 / 末行。macOS 同时支持 Cmd。
 - **Ctrl+Space** 或 **Select Column** 选中当前列的可见单元格；点击左侧行号或 **Select Rows** 选中整行，Shift 点击行号选择连续多行。
 - 点击列标题切换 **A→Z / Z→A** 排序；选择整列请使用 Select Column 或 Ctrl+Space。
+- **Insert Row Above / Insert Row Below** 在当前行上方或下方插入空行，Row 菜单和单元格右键菜单都能用（**Enter** 为向下方插入）；可撤销。
 - **Delete / Backspace** 清空选中单元格；**Delete Rows**、右键菜单或 **Ctrl/Cmd+Delete/Backspace** 删除这些单元格所在的整行。以上操作都支持撤销。
 - **Ctrl/Cmd+C / X / V** 复制、剪切、粘贴矩形单元格，使用制表符分隔列。单个值可以填满选区；粘贴内容超出表格时会自动在末尾补行、在右边补列（一次撤销即可还原）。
 - 双击、**F2 / Enter** 开始编辑单元格，也可以直接输入新值。编辑状态下保留文本框的选择和快捷键操作。
 - **Find Column Duplicates** 检查当前列在整个文档中的重复值，显示每组的所有记录，包含首次出现的记录。比较区分大小写和空格，忽略空单元格；不会删除数据。删除 / 修改重复项后结果会刷新，**Show All** 清除筛选。
+- 去重两种方式（Data 菜单，都支持撤销）：**Remove Duplicate Rows** 删除所有单元格完全相同的整行，保留首次出现；**Remove Rows Duplicated in Current Column** 按当前列的值去重，只保留每个值首次出现的那一行，忽略空单元格。
 
 ### Interaction checks
 
